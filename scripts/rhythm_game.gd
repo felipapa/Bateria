@@ -25,6 +25,7 @@ const LIFE_RECOVERY := [2.8, 1.7, 0.7]
 const LIFE_DAMAGE_BAD := 4.0
 const LIFE_DAMAGE_MISS := 10.0
 const SCORES_PATH := "user://beatforge_scores.json"
+const CUSTOM_DIFFICULTIES := ["EASY", "NORMAL", "HARD", "EXPERT"]
 const DRUM_SAMPLE_STARTS := [0.451, 0.979, 1.357, 1.740]
 const DRUM_SAMPLE_LENGTHS := [0.43, 0.26, 0.33, 0.34]
 
@@ -104,6 +105,7 @@ var new_song_index := 0
 var new_song_bpm := "120"
 var new_song_offset := "0.000"
 var new_level_field := 0
+var new_level_difficulty := 1
 var editor_time := 0.0
 var editor_playing := false
 var editor_subdivision := 1
@@ -682,6 +684,7 @@ func _open_new_level() -> void:
 	new_level_field = 0
 	new_song_bpm = "120"
 	new_song_offset = "0.000"
+	new_level_difficulty = 1
 	current_screen = Screen.NEW_LEVEL
 
 
@@ -697,11 +700,15 @@ func _handle_new_level_input(event: InputEvent) -> void:
 	if keycode == KEY_ESCAPE:
 		current_screen = Screen.MENU
 	elif keycode == KEY_TAB:
-		new_level_field = (new_level_field + 1) % 3
+		new_level_field = (new_level_field + 1) % 4
 	elif keycode == KEY_UP and new_level_field == 0:
 		new_song_index = maxi(0, new_song_index - 1)
 	elif keycode == KEY_DOWN and new_level_field == 0:
 		new_song_index = mini(new_song_files.size() - 1, new_song_index + 1)
+	elif keycode == KEY_LEFT and new_level_field == 3:
+		new_level_difficulty = maxi(0, new_level_difficulty - 1)
+	elif keycode == KEY_RIGHT and new_level_field == 3:
+		new_level_difficulty = mini(CUSTOM_DIFFICULTIES.size() - 1, new_level_difficulty + 1)
 	elif keycode == KEY_BACKSPACE and new_level_field > 0:
 		if new_level_field == 1 and not new_song_bpm.is_empty():
 			new_song_bpm = new_song_bpm.left(new_song_bpm.length() - 1)
@@ -736,8 +743,8 @@ func _create_new_level() -> void:
 	var new_level := {
 		"title": base_name.to_upper().left(28),
 		"subtitle": "Custom song",
-		"difficulty": "CUSTOM",
-		"rank": 1,
+		"difficulty": CUSTOM_DIFFICULTIES[new_level_difficulty],
+		"rank": new_level_difficulty,
 		"bpm": bpm,
 		"bpm_label": "%.2f BPM" % bpm,
 		"length": "%02d:%02d" % [int(duration / 60.0), int(fmod(duration, 60.0))],
@@ -753,7 +760,10 @@ func _create_new_level() -> void:
 	selected_level = levels.size() - 1
 	_select_level_data()
 	_setup_song()
-	_build_song_chart()
+	# New levels intentionally start empty so the author places every hit by ear.
+	chart.clear()
+	chart_end = song_length
+	_save_chart()
 	current_screen = Screen.EDITOR
 	editor_time = current_song_offset
 	editor_playing = false
@@ -1169,10 +1179,12 @@ func _draw_new_level() -> void:
 		draw_string(fallback_font, panel.position + Vector2(34.0, 83.0), str(new_song_files[new_song_index]).get_file(), HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 18, Color.WHITE)
 		var bpm_color := Color("#ffc857") if new_level_field == 1 else Color("#a9b8df")
 		var offset_color := Color("#ffc857") if new_level_field == 2 else Color("#a9b8df")
+		var difficulty_color := Color("#ffc857") if new_level_field == 3 else Color("#a9b8df")
 		draw_string(fallback_font, panel.position + Vector2(34.0, 145.0), "BPM  " + new_song_bpm, HORIZONTAL_ALIGNMENT_LEFT, 280.0, 20, bpm_color)
 		draw_string(fallback_font, panel.position + Vector2(360.0, 145.0), "OFFSET  " + new_song_offset + " s", HORIZONTAL_ALIGNMENT_LEFT, 300.0, 20, offset_color)
-		draw_string(fallback_font, panel.position + Vector2(34.0, 198.0), "El nivel se generara con notas iniciales y luego podras editarlo", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 14, Color("#778bbd"))
-		draw_string(fallback_font, panel.position + Vector2(34.0, 270.0), "TAB cambiar campo    ARRIBA/ABAJO cambiar cancion", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 14, Color("#8296c9"))
+		draw_string(fallback_font, panel.position + Vector2(34.0, 198.0), "DIFICULTAD  " + CUSTOM_DIFFICULTIES[new_level_difficulty], HORIZONTAL_ALIGNMENT_LEFT, 330.0, 20, difficulty_color)
+		draw_string(fallback_font, panel.position + Vector2(34.0, 238.0), "El nivel se creara con el chart completamente vacio", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 14, Color("#778bbd"))
+		draw_string(fallback_font, panel.position + Vector2(34.0, 286.0), "TAB campo    ARRIBA/ABAJO cancion    IZQ/DER dificultad", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 14, Color("#8296c9"))
 		draw_string(fallback_font, panel.position + Vector2(34.0, 306.0), "ENTER crear y abrir editor    ESC cancelar", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 16, Color("#8fffd6"))
 	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "El BPM define el snap del editor; el offset marca el primer golpe", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
 
