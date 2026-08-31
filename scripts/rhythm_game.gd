@@ -488,6 +488,7 @@ func _handle_editor_input(event: InputEvent) -> void:
 		_save_chart()
 	elif keycode == KEY_L:
 		if _load_chart_file():
+			_apply_hard_mode_accents()
 			editor_message = "Chart cargado"
 		else:
 			editor_message = "Todavia no hay un chart guardado"
@@ -625,6 +626,38 @@ func _sort_chart() -> void:
 
 func _sort_chart_notes(first: Dictionary, second: Dictionary) -> bool:
 	return float(first.time) < float(second.time)
+
+
+func _apply_hard_mode_accents() -> void:
+	var rank := int(levels[selected_level].rank)
+	if chart.is_empty():
+		return
+	var additions: Array = []
+	var occupied := {}
+	for note in chart:
+		occupied["%.4f:%d" % [float(note.time), int(note.lane)]] = true
+	for index in range(chart.size()):
+		var note: Dictionary = chart[index]
+		var same_time_count := 0
+		for other in chart:
+			if is_equal_approx(float(other.time), float(note.time)):
+				same_time_count += 1
+		if same_time_count >= 2 and index % (18 if rank < 3 else 14) == 0:
+			var extra_lane := (int(note.lane) + 1 + int(index / 18)) % LANE_COUNT
+			var chord_key := "%.4f:%d" % [float(note.time), extra_lane]
+			if not occupied.has(chord_key):
+				occupied[chord_key] = true
+				additions.append({"time": float(note.time), "lane": extra_lane})
+		if index % (24 if rank == 0 else 18 if rank < 3 else 14) == 0:
+			var offbeat_time := float(note.time) + current_beat * 0.5
+			var offbeat_lane := (int(note.lane) + 2 + int(index / 12)) % LANE_COUNT
+			var offbeat_key := "%.4f:%d" % [offbeat_time, offbeat_lane]
+			if offbeat_time < song_length - 0.05 and not occupied.has(offbeat_key):
+				occupied[offbeat_key] = true
+				additions.append({"time": offbeat_time, "lane": offbeat_lane})
+	for note in additions:
+		chart.append(note)
+	_sort_chart()
 
 
 func _update_song(delta: float) -> void:
@@ -1169,6 +1202,7 @@ func _build_song_chart() -> void:
 	chart_end = song_length
 	if _load_chart_file():
 		editor_message = "Chart guardado cargado"
+	_apply_hard_mode_accents()
 
 
 func _add_chart_note(time: float, lane: int) -> void:
