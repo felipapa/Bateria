@@ -3,7 +3,7 @@ extends Node2D
 ## Four-lane rhythm prototype with a menu and a Guitar Hero-style highway.
 ## The chart is kept as song time + lane, independent from the visuals.
 
-enum Screen { MENU, NAME_ENTRY, GAME, EDITOR, SCORES, NEW_LEVEL }
+enum Screen { MENU, NAME_ENTRY, GAME, EDITOR, SCORES, NEW_LEVEL, DELETE_CONFIRM }
 
 const LANE_COUNT := 4
 const THIS_LOVE_PATH := "res://YTDown.com_YouTube_Maroon-5-This-Love_Media_XPpTgCho5ZA_009_128k.mp3"
@@ -47,6 +47,7 @@ const KEY_TO_LANE := {
 	KEY_RIGHT: 3
 }
 const CUSTOM_LEVELS_PATH := "res://levels/custom_levels.json"
+const BUILTIN_LEVEL_COUNT := 3
 
 var levels: Array = [
 	{
@@ -106,6 +107,7 @@ var new_song_bpm := "120"
 var new_song_offset := "0.000"
 var new_level_field := 0
 var new_level_difficulty := 1
+var delete_action := ""
 var editor_time := 0.0
 var editor_playing := false
 var editor_subdivision := 1
@@ -216,6 +218,9 @@ func _input(event: InputEvent) -> void:
 	if current_screen == Screen.NEW_LEVEL:
 		_handle_new_level_input(event)
 		return
+	if current_screen == Screen.DELETE_CONFIRM:
+		_handle_delete_confirm_input(event)
+		return
 	if current_screen == Screen.SCORES:
 		_handle_scores_input(event)
 		return
@@ -260,6 +265,86 @@ func _handle_menu_key(keycode: int) -> void:
 		current_screen = Screen.SCORES
 	elif keycode == KEY_N:
 		_open_new_level()
+	elif keycode == KEY_X:
+		_open_delete_confirmation("song")
+	elif keycode == KEY_C:
+		_open_delete_confirmation("chart")
+
+
+func _open_delete_confirmation(action: String) -> void:
+	if action == "song" and selected_level < BUILTIN_LEVEL_COUNT:
+		return
+	delete_action = action
+	current_screen = Screen.DELETE_CONFIRM
+
+
+func _handle_delete_confirm_input(event: InputEvent) -> void:
+	if not event is InputEventKey:
+		return
+	var key_event := event as InputEventKey
+	if not key_event.pressed or key_event.echo:
+		return
+	var keycode := key_event.physical_keycode
+	if keycode == 0:
+		keycode = key_event.keycode
+	if keycode == KEY_ENTER or keycode == KEY_Y:
+		if delete_action == "song":
+			_delete_selected_song()
+		else:
+			_clear_selected_chart()
+		delete_action = ""
+		current_screen = Screen.MENU
+	elif keycode == KEY_ESCAPE or keycode == KEY_N:
+		delete_action = ""
+		current_screen = Screen.MENU
+
+
+func _delete_selected_song() -> void:
+	if selected_level < BUILTIN_LEVEL_COUNT or selected_level >= levels.size():
+		return
+	var level: Dictionary = levels[selected_level]
+	var song_path := str(level.song_path)
+	var chart_path := str(level.chart_path)
+	for index in range(custom_levels.size() - 1, -1, -1):
+		if str(custom_levels[index].song_path) == song_path:
+			custom_levels.remove_at(index)
+	levels.remove_at(selected_level)
+	_remove_project_file(song_path)
+	_remove_project_file(chart_path)
+	_save_custom_levels()
+	_remove_scores_for_level(selected_level)
+	selected_level = clampi(selected_level, 0, levels.size() - 1)
+	_select_level_data()
+	_setup_song()
+	_build_song_chart()
+
+
+func _clear_selected_chart() -> void:
+	chart.clear()
+	chart_end = song_length
+	var file := FileAccess.open(str(levels[selected_level].chart_path), FileAccess.WRITE)
+	if file != null:
+		file.store_string("[]")
+		file.close()
+
+
+func _remove_project_file(path: String) -> void:
+	var absolute_path := ProjectSettings.globalize_path(path)
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(absolute_path)
+
+
+func _remove_scores_for_level(level_index: int) -> void:
+	var remaining_scores: Array = []
+	for entry in scores:
+		var entry_level := int(entry.level)
+		if entry_level == level_index:
+			continue
+		if entry_level > level_index:
+			entry.level = entry_level - 1
+		remaining_scores.append(entry)
+	scores = remaining_scores
+	_save_scores()
 
 
 func _open_name_entry() -> void:
@@ -1098,6 +1183,8 @@ func _draw() -> void:
 		_draw_name_entry()
 	elif current_screen == Screen.NEW_LEVEL:
 		_draw_new_level()
+	elif current_screen == Screen.DELETE_CONFIRM:
+		_draw_delete_confirmation()
 	elif current_screen == Screen.EDITOR:
 		_draw_editor()
 	elif current_screen == Screen.SCORES:
@@ -1139,7 +1226,7 @@ func _draw_menu() -> void:
 	draw_string(fallback_font, card_position + Vector2(34.0, 174.0), str(level.notes), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#778bbd"))
 	draw_string(fallback_font, card_position + Vector2(card_size.x - 260.0, 174.0), "ENTER  JUGAR    E  EDITOR", HORIZONTAL_ALIGNMENT_CENTER, 220.0, 14, Color("#ffffff"))
 
-	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "ARRIBA / ABAJO seleccionar    ENTER nombre/jugar    E editor    N nuevo    T tabla", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
+	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "ARRIBA / ABAJO seleccionar    ENTER jugar    E editor    N nuevo    X borrar cancion    C borrar chart    T tabla", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
 	draw_string(fallback_font, Vector2(viewport_size.x - 260.0, viewport_size.y - 46.0), "NIVEL  %02d / %02d" % [selected_level + 1, levels.size()], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#6678aa"))
 
 
@@ -1187,6 +1274,23 @@ func _draw_new_level() -> void:
 		draw_string(fallback_font, panel.position + Vector2(34.0, 286.0), "TAB campo    ARRIBA/ABAJO cancion    IZQ/DER dificultad", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 14, Color("#8296c9"))
 		draw_string(fallback_font, panel.position + Vector2(34.0, 306.0), "ENTER crear y abrir editor    ESC cancelar", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 16, Color("#8fffd6"))
 	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "El BPM define el snap del editor; el offset marca el primer golpe", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
+
+
+func _draw_delete_confirmation() -> void:
+	var viewport_size := get_viewport_rect().size
+	_draw_animated_background(viewport_size, menu_time)
+	var level: Dictionary = levels[selected_level]
+	var panel := Rect2((viewport_size.x - 680.0) * 0.5, 190.0, 680.0, 250.0)
+	draw_rect(panel, Color("#101a36"))
+	draw_rect(panel, Color("#ff5e6c"), false, 2.0)
+	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 52.0), "CONFIRMAR ELIMINACION", HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 22, Color("#f2f5ff"))
+	if delete_action == "song":
+		draw_string(fallback_font, Vector2(panel.position.x + 35.0, panel.position.y + 105.0), "Se borrara la cancion y todo su chart:", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 70.0, 16, Color("#ffcf78"))
+	else:
+		draw_string(fallback_font, Vector2(panel.position.x + 35.0, panel.position.y + 105.0), "Se borraran todas las notas del chart:", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 70.0, 16, Color("#ffcf78"))
+	draw_string(fallback_font, Vector2(panel.position.x + 35.0, panel.position.y + 140.0), str(level.title), HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 70.0, 20, Color.WHITE)
+	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 205.0), "ENTER o Y confirmar    ESC o N cancelar", HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 15, Color("#a9b8df"))
+	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "La accion no se puede deshacer", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#ff5e6c"))
 
 
 func _draw_scores() -> void:

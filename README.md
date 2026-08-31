@@ -47,6 +47,12 @@ Desde el menu presiona `E` para abrir el editor de la cancion seleccionada.
 - `Enter`: probar el chart actual.
 - `Esc`: volver al menu.
 
+Desde el menu tambien se puede administrar el contenido:
+
+- `X`: eliminar una cancion personalizada y su chart, con confirmacion.
+- `C`: eliminar todas las notas del chart seleccionado, con confirmacion.
+- Las canciones incluidas originalmente no se pueden eliminar.
+
 ## Agregar una cancion
 
 Copia un `.mp3` en la carpeta principal del proyecto y vuelve a ejecutar el
