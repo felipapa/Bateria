@@ -47,6 +47,14 @@ Desde el menu presiona `E` para abrir el editor de la cancion seleccionada.
 - `Enter`: probar el chart actual.
 - `Esc`: volver al menu.
 
+## Agregar una cancion
+
+Copia un `.mp3` en la carpeta principal del proyecto y vuelve a ejecutar el
+juego. En el menu presiona `N`, selecciona la cancion, escribe su BPM y offset,
+y presiona `Enter`. Se abrira el editor con un chart inicial generado. Guarda
+con `S`; el nivel quedara registrado en `levels/custom_levels.json` y su chart
+se guardara en `levels/`.
+
 El nivel de prueba usa la cancion `This Love` de Maroon 5 a 94.83 BPM, con un
 offset inicial de 0.399 segundos detectado desde el audio. Las
 ventanas actuales son `Perfect` +/-60 ms, `Great` +/-110 ms y `Good` +/-180 ms.

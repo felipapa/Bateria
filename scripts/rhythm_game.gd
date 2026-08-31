@@ -3,7 +3,7 @@ extends Node2D
 ## Four-lane rhythm prototype with a menu and a Guitar Hero-style highway.
 ## The chart is kept as song time + lane, independent from the visuals.
 
-enum Screen { MENU, NAME_ENTRY, GAME, EDITOR, SCORES }
+enum Screen { MENU, NAME_ENTRY, GAME, EDITOR, SCORES, NEW_LEVEL }
 
 const LANE_COUNT := 4
 const THIS_LOVE_PATH := "res://YTDown.com_YouTube_Maroon-5-This-Love_Media_XPpTgCho5ZA_009_128k.mp3"
@@ -45,7 +45,9 @@ const KEY_TO_LANE := {
 	KEY_K: 3,
 	KEY_RIGHT: 3
 }
-const LEVELS := [
+const CUSTOM_LEVELS_PATH := "res://levels/custom_levels.json"
+
+var levels: Array = [
 	{
 		"title": "THIS LOVE",
 		"subtitle": "Maroon 5",
@@ -96,6 +98,12 @@ var menu_time := 0.0
 var name_input := ""
 var player_name := ""
 var scores: Array = []
+var custom_levels: Array = []
+var new_song_files: Array = []
+var new_song_index := 0
+var new_song_bpm := "120"
+var new_song_offset := "0.000"
+var new_level_field := 0
 var editor_time := 0.0
 var editor_playing := false
 var editor_subdivision := 1
@@ -147,6 +155,7 @@ var fallback_font: Font
 
 func _ready() -> void:
 	fallback_font = ThemeDB.fallback_font
+	_load_custom_levels()
 	_load_scores()
 	_select_level_data()
 	_setup_song()
@@ -202,6 +211,9 @@ func _input(event: InputEvent) -> void:
 	if current_screen == Screen.NAME_ENTRY:
 		_handle_name_input(event)
 		return
+	if current_screen == Screen.NEW_LEVEL:
+		_handle_new_level_input(event)
+		return
 	if current_screen == Screen.SCORES:
 		_handle_scores_input(event)
 		return
@@ -237,13 +249,15 @@ func _handle_menu_key(keycode: int) -> void:
 	if keycode == KEY_UP or keycode == KEY_W:
 		selected_level = maxi(0, selected_level - 1)
 	elif keycode == KEY_DOWN or keycode == KEY_S:
-		selected_level = mini(LEVELS.size() - 1, selected_level + 1)
+		selected_level = mini(levels.size() - 1, selected_level + 1)
 	elif keycode == KEY_ENTER or keycode == KEY_SPACE:
 		_open_name_entry()
 	elif keycode == KEY_E:
 		_enter_editor()
 	elif keycode == KEY_T:
 		current_screen = Screen.SCORES
+	elif keycode == KEY_N:
+		_open_new_level()
 
 
 func _open_name_entry() -> void:
@@ -289,7 +303,7 @@ func _handle_scores_input(event: InputEvent) -> void:
 	elif keycode == KEY_UP or keycode == KEY_W:
 		selected_level = maxi(0, selected_level - 1)
 	elif keycode == KEY_DOWN or keycode == KEY_S:
-		selected_level = mini(LEVELS.size() - 1, selected_level + 1)
+		selected_level = mini(levels.size() - 1, selected_level + 1)
 
 
 func _enter_editor() -> void:
@@ -562,7 +576,6 @@ func _record_score() -> void:
 				scores[index] = entry
 				_save_scores()
 			return
-			return
 	scores.append({
 		"name": player_name.strip_edges().left(12),
 		"score": score,
@@ -600,7 +613,7 @@ func _load_scores() -> void:
 				"name": str(entry.name).left(12),
 				"score": int(entry.score),
 				"accuracy": float(entry.get("accuracy", 0.0)),
-				"level": clampi(int(entry.level), 0, LEVELS.size() - 1)
+				"level": clampi(int(entry.level), 0, levels.size() - 1)
 			})
 	_scores_sort()
 
@@ -611,6 +624,140 @@ func _save_scores() -> void:
 		return
 	file.store_string(JSON.stringify(scores))
 	file.close()
+
+
+func _load_custom_levels() -> void:
+	custom_levels.clear()
+	if not FileAccess.file_exists(CUSTOM_LEVELS_PATH):
+		return
+	var file := FileAccess.open(CUSTOM_LEVELS_PATH, FileAccess.READ)
+	if file == null:
+		return
+	var parsed = JSON.parse_string(file.get_as_text())
+	file.close()
+	if not parsed is Array:
+		return
+	for entry in parsed:
+		if not entry is Dictionary or not entry.has("song_path") or not entry.has("chart_path"):
+			continue
+		if not FileAccess.file_exists(str(entry.song_path)):
+			continue
+		var level: Dictionary = entry.duplicate(true)
+		levels.append(level)
+		custom_levels.append(level)
+
+
+func _save_custom_levels() -> void:
+	var file := FileAccess.open(CUSTOM_LEVELS_PATH, FileAccess.WRITE)
+	if file == null:
+		return
+	file.store_string(JSON.stringify(custom_levels))
+	file.close()
+
+
+func _scan_new_song_files() -> void:
+	new_song_files.clear()
+	var directory := DirAccess.open("res://")
+	if directory == null:
+		return
+	directory.list_dir_begin()
+	var file_name := directory.get_next()
+	while not file_name.is_empty():
+		if not directory.current_is_dir() and file_name.to_lower().ends_with(".mp3"):
+			var song_path := "res://" + file_name
+			var already_added := false
+			for level in levels:
+				if str(level.song_path) == song_path:
+					already_added = true
+					break
+			if song_path != DRUM_SAMPLES_PATH and not already_added:
+				new_song_files.append(song_path)
+		file_name = directory.get_next()
+	directory.list_dir_end()
+
+
+func _open_new_level() -> void:
+	_scan_new_song_files()
+	new_song_index = 0
+	new_level_field = 0
+	new_song_bpm = "120"
+	new_song_offset = "0.000"
+	current_screen = Screen.NEW_LEVEL
+
+
+func _handle_new_level_input(event: InputEvent) -> void:
+	if not event is InputEventKey:
+		return
+	var key_event := event as InputEventKey
+	if not key_event.pressed or key_event.echo:
+		return
+	var keycode := key_event.physical_keycode
+	if keycode == 0:
+		keycode = key_event.keycode
+	if keycode == KEY_ESCAPE:
+		current_screen = Screen.MENU
+	elif keycode == KEY_TAB:
+		new_level_field = (new_level_field + 1) % 3
+	elif keycode == KEY_UP and new_level_field == 0:
+		new_song_index = maxi(0, new_song_index - 1)
+	elif keycode == KEY_DOWN and new_level_field == 0:
+		new_song_index = mini(new_song_files.size() - 1, new_song_index + 1)
+	elif keycode == KEY_BACKSPACE and new_level_field > 0:
+		if new_level_field == 1 and not new_song_bpm.is_empty():
+			new_song_bpm = new_song_bpm.left(new_song_bpm.length() - 1)
+		elif new_level_field == 2 and not new_song_offset.is_empty():
+			new_song_offset = new_song_offset.left(new_song_offset.length() - 1)
+	elif keycode == KEY_ENTER:
+		_create_new_level()
+	else:
+		if key_event.unicode < 32 or key_event.unicode > 126:
+			return
+		var character := String.chr(key_event.unicode)
+		if new_level_field == 1 and new_song_bpm.length() < 6 and (character.is_valid_int() or character == "."):
+			new_song_bpm += character
+		elif new_level_field == 2 and new_song_offset.length() < 8 and (character.is_valid_int() or character == "." or character == "-"):
+			new_song_offset += character
+
+
+func _create_new_level() -> void:
+	if new_song_files.is_empty():
+		return
+	var bpm := float(new_song_bpm)
+	var offset := float(new_song_offset)
+	if bpm < 40.0 or bpm > 240.0:
+		return
+	var song_path: String = new_song_files[new_song_index]
+	var audio = load(song_path)
+	var duration := 180.0
+	if audio is AudioStream:
+		duration = maxf(1.0, audio.get_length())
+	var base_name := song_path.get_file().get_basename().replace("_", " ").replace("-", " ")
+	var slug := song_path.get_file().get_basename().to_lower().replace(" ", "_").replace("-", "_")
+	var new_level := {
+		"title": base_name.to_upper().left(28),
+		"subtitle": "Custom song",
+		"difficulty": "CUSTOM",
+		"rank": 1,
+		"bpm": bpm,
+		"bpm_label": "%.2f BPM" % bpm,
+		"length": "%02d:%02d" % [int(duration / 60.0), int(fmod(duration, 60.0))],
+		"notes": "Chart nuevo / 4 carriles",
+		"song_path": song_path,
+		"duration": duration,
+		"offset": offset,
+		"chart_path": "res://levels/" + slug + "_chart.json"
+	}
+	levels.append(new_level)
+	custom_levels.append(new_level)
+	_save_custom_levels()
+	selected_level = levels.size() - 1
+	_select_level_data()
+	_setup_song()
+	_build_song_chart()
+	current_screen = Screen.EDITOR
+	editor_time = current_song_offset
+	editor_playing = false
+	editor_message = "Nuevo nivel creado"
 
 
 func _spawn_notes() -> void:
@@ -839,7 +986,7 @@ func _stop_sample_player(player: AudioStreamPlayer) -> void:
 
 
 func _select_level_data() -> void:
-	var level: Dictionary = LEVELS[selected_level]
+	var level: Dictionary = levels[selected_level]
 	current_bpm = float(level.bpm)
 	current_beat = 60.0 / current_bpm
 	current_song_offset = float(level.offset)
@@ -916,7 +1063,7 @@ func _build_song_chart() -> void:
 			if beat_index % 2 == 1:
 				_add_chart_note(beat_time + current_beat * 0.5, (beat_index + 3) % LANE_COUNT)
 
-		var rank := int(LEVELS[selected_level].rank)
+		var rank := int(levels[selected_level].rank)
 		if rank >= 2 and bar >= 4 and beat_index % 2 == 0:
 			_add_chart_note(beat_time + current_beat * 0.5, (beat_index + 2) % LANE_COUNT)
 		if rank >= 3 and bar >= 8:
@@ -939,6 +1086,8 @@ func _draw() -> void:
 		_draw_menu()
 	elif current_screen == Screen.NAME_ENTRY:
 		_draw_name_entry()
+	elif current_screen == Screen.NEW_LEVEL:
+		_draw_new_level()
 	elif current_screen == Screen.EDITOR:
 		_draw_editor()
 	elif current_screen == Screen.SCORES:
@@ -970,7 +1119,7 @@ func _draw_menu() -> void:
 	draw_rect(card, Color("#536aa5"), false, 2.0)
 	draw_rect(Rect2(card_position, Vector2(7.0, card_size.y)), LANE_COLORS[selected_level % LANE_COUNT])
 
-	var level: Dictionary = LEVELS[selected_level]
+	var level: Dictionary = levels[selected_level]
 	draw_string(fallback_font, card_position + Vector2(34.0, 50.0), "%02d" % (selected_level + 1), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, Color("#7f94ca"))
 	draw_string(fallback_font, card_position + Vector2(92.0, 51.0), str(level.title), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 27, Color.WHITE)
 	draw_string(fallback_font, card_position + Vector2(92.0, 78.0), str(level.subtitle), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#a9b8df"))
@@ -980,14 +1129,14 @@ func _draw_menu() -> void:
 	draw_string(fallback_font, card_position + Vector2(34.0, 174.0), str(level.notes), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#778bbd"))
 	draw_string(fallback_font, card_position + Vector2(card_size.x - 260.0, 174.0), "ENTER  JUGAR    E  EDITOR", HORIZONTAL_ALIGNMENT_CENTER, 220.0, 14, Color("#ffffff"))
 
-	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "ARRIBA / ABAJO seleccionar    ENTER nombre/jugar    E editor    T tabla", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
-	draw_string(fallback_font, Vector2(viewport_size.x - 260.0, viewport_size.y - 46.0), "NIVEL  %02d / %02d" % [selected_level + 1, LEVELS.size()], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#6678aa"))
+	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "ARRIBA / ABAJO seleccionar    ENTER nombre/jugar    E editor    N nuevo    T tabla", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
+	draw_string(fallback_font, Vector2(viewport_size.x - 260.0, viewport_size.y - 46.0), "NIVEL  %02d / %02d" % [selected_level + 1, levels.size()], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#6678aa"))
 
 
 func _draw_name_entry() -> void:
 	var viewport_size := get_viewport_rect().size
 	_draw_animated_background(viewport_size, menu_time)
-	var level: Dictionary = LEVELS[selected_level]
+	var level: Dictionary = levels[selected_level]
 	draw_string(fallback_font, Vector2(62.0, 68.0), "BEATFORGE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 34, Color("#f2f5ff"))
 	draw_string(fallback_font, Vector2(66.0, 94.0), "PREPARA TU PARTIDA", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
 	var panel := Rect2((viewport_size.x - 620.0) * 0.5, 190.0, 620.0, 265.0)
@@ -1004,10 +1153,34 @@ func _draw_name_entry() -> void:
 	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "Escribe hasta 12 caracteres", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
 
 
+func _draw_new_level() -> void:
+	var viewport_size := get_viewport_rect().size
+	_draw_animated_background(viewport_size, menu_time)
+	draw_string(fallback_font, Vector2(62.0, 68.0), "BEATFORGE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 34, Color("#f2f5ff"))
+	draw_string(fallback_font, Vector2(66.0, 94.0), "NUEVO NIVEL", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
+	var panel := Rect2((viewport_size.x - 780.0) * 0.5, 150.0, 780.0, 390.0)
+	draw_rect(panel, Color("#101a36"))
+	draw_rect(panel, Color("#806a45"), false, 2.0)
+	if new_song_files.is_empty():
+		draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 105.0), "No hay MP3 nuevos", HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 27, Color("#ffcf78"))
+		draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 155.0), "Copia una cancion en la carpeta del proyecto y vuelve a abrir esta pantalla", HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 14, Color("#a9b8df"))
+	else:
+		draw_string(fallback_font, panel.position + Vector2(34.0, 48.0), "CANCION", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#a9b8df"))
+		draw_string(fallback_font, panel.position + Vector2(34.0, 83.0), str(new_song_files[new_song_index]).get_file(), HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 18, Color.WHITE)
+		var bpm_color := Color("#ffc857") if new_level_field == 1 else Color("#a9b8df")
+		var offset_color := Color("#ffc857") if new_level_field == 2 else Color("#a9b8df")
+		draw_string(fallback_font, panel.position + Vector2(34.0, 145.0), "BPM  " + new_song_bpm, HORIZONTAL_ALIGNMENT_LEFT, 280.0, 20, bpm_color)
+		draw_string(fallback_font, panel.position + Vector2(360.0, 145.0), "OFFSET  " + new_song_offset + " s", HORIZONTAL_ALIGNMENT_LEFT, 300.0, 20, offset_color)
+		draw_string(fallback_font, panel.position + Vector2(34.0, 198.0), "El nivel se generara con notas iniciales y luego podras editarlo", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 14, Color("#778bbd"))
+		draw_string(fallback_font, panel.position + Vector2(34.0, 270.0), "TAB cambiar campo    ARRIBA/ABAJO cambiar cancion", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 14, Color("#8296c9"))
+		draw_string(fallback_font, panel.position + Vector2(34.0, 306.0), "ENTER crear y abrir editor    ESC cancelar", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 16, Color("#8fffd6"))
+	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "El BPM define el snap del editor; el offset marca el primer golpe", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
+
+
 func _draw_scores() -> void:
 	var viewport_size := get_viewport_rect().size
 	_draw_animated_background(viewport_size, menu_time)
-	var level: Dictionary = LEVELS[selected_level]
+	var level: Dictionary = levels[selected_level]
 	draw_string(fallback_font, Vector2(62.0, 68.0), "BEATFORGE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 34, Color("#f2f5ff"))
 	draw_string(fallback_font, Vector2(66.0, 94.0), "TABLA DE PUNTUACIONES", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
 	draw_string(fallback_font, Vector2(66.0, 154.0), "ARRIBA / ABAJO cambia de nivel", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#778bbd"))
@@ -1040,7 +1213,7 @@ func _draw_editor() -> void:
 	var viewport_size := get_viewport_rect().size
 	_draw_animated_background(viewport_size, menu_time)
 	draw_string(fallback_font, Vector2(34.0, 42.0), "BEATFORGE  /  LEVEL EDITOR", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 24, Color("#f2f5ff"))
-	var editor_level: Dictionary = LEVELS[selected_level]
+	var editor_level: Dictionary = levels[selected_level]
 	draw_string(fallback_font, Vector2(36.0, 64.0), str(editor_level.title) + "  /  " + str(editor_level.bpm_label), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#8296c9"))
 
 	var timeline := _editor_timeline_rect()
@@ -1285,7 +1458,7 @@ func _draw_animated_background(viewport_size: Vector2, animation_time: float) ->
 
 func _draw_header(viewport_size: Vector2) -> void:
 	draw_string(fallback_font, Vector2(34.0, 40.0), "BEATFORGE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 24, Color("#f2f5ff"))
-	var game_level: Dictionary = LEVELS[selected_level]
+	var game_level: Dictionary = levels[selected_level]
 	draw_string(fallback_font, Vector2(36.0, 62.0), str(game_level.title) + "  /  " + str(game_level.bpm_label), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#8296c9"))
 	var accuracy := _accuracy_percent()
 	draw_string(fallback_font, Vector2(viewport_size.x - 265.0, 36.0), "SCORE %07d" % score, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, Color("#f2f5ff"))
