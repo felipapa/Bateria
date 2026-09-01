@@ -18,6 +18,7 @@ const PERFECT_WINDOW := 0.060
 const GREAT_WINDOW := 0.110
 const GOOD_WINDOW := 0.180
 const MISS_WINDOW := 0.220
+const NOTE_TIMING_CORRECTION := 0.120
 const HIT_EFFECT_DURATION := 0.68
 const MAX_LIFE := 100.0
 const LIFE_DRAIN_PER_SECOND := 0.055
@@ -185,7 +186,11 @@ func _process(delta: float) -> void:
 			elif audio_started and song_player != null:
 				# This compensates the audio mix buffer so the visual line and the
 				# audible beat use the same clock.
-				song_time = song_player.get_playback_position() + AudioServer.get_time_since_last_mix()
+				if song_player.playing:
+					song_time = song_player.get_playback_position() + AudioServer.get_time_since_last_mix()
+				else:
+					# AudioStreamPlayer stops at the end instead of advancing its clock.
+					song_time = maxf(song_time, song_length)
 			else:
 				song_time += delta
 			if song_time >= 0.0:
@@ -612,7 +617,7 @@ func _load_chart_file() -> bool:
 	for note in parsed:
 		if note is Dictionary and note.has("time") and note.has("lane"):
 			chart.append({
-				"time": clampf(float(note.time), 0.0, song_length),
+				"time": clampf(float(note.time) + NOTE_TIMING_CORRECTION, 0.0, song_length),
 				"lane": clampi(int(note.lane), 0, LANE_COUNT - 1)
 			})
 	_sort_chart()
@@ -667,7 +672,7 @@ func _update_song(delta: float) -> void:
 		if beat_position < delta * 1.5:
 			pulse_timer = 0.12
 
-	if song_time > chart_end + 1.0 and chart_cursor >= chart.size():
+	if song_time >= song_length - 0.05 and chart_cursor >= chart.size():
 		_finish_level(true)
 
 
@@ -1206,8 +1211,9 @@ func _build_song_chart() -> void:
 
 
 func _add_chart_note(time: float, lane: int) -> void:
-	if time < song_length - 0.20:
-		chart.append({"time": time, "lane": lane})
+	var corrected_time := time + NOTE_TIMING_CORRECTION
+	if corrected_time < song_length - 0.20:
+		chart.append({"time": corrected_time, "lane": lane})
 
 
 func _draw() -> void:
