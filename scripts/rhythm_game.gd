@@ -18,8 +18,7 @@ const PERFECT_WINDOW := 0.060
 const GREAT_WINDOW := 0.110
 const GOOD_WINDOW := 0.180
 const MISS_WINDOW := 0.220
-const FAR_KID_TIMING_CORRECTION := 0.060
-const HERO_TIMING_CORRECTION := 0.006
+const FAR_KID_INTRO_SHIFT := 1.012
 const HIT_EFFECT_DURATION := 0.68
 const MAX_LIFE := 100.0
 const LIFE_DRAIN_PER_SECOND := 0.055
@@ -77,7 +76,7 @@ var levels: Array = [
 		"notes": "Contratiempos rapidos / 4 carriles",
 		"song_path": FAR_KID_PATH,
 		"duration": 178.200,
-		"offset": 0.3270,
+		"offset": 1.2790,
 		"chart_path": "res://levels/far_kid_chart.json"
 	},
 	{
@@ -91,7 +90,7 @@ var levels: Array = [
 		"notes": "Alta densidad / dobles y cortes",
 		"song_path": HERO_PATH,
 		"duration": 196.812,
-		"offset": 0.2540,
+		"offset": 1.9740,
 		"chart_path": "res://levels/hero_chart.json"
 	}
 ]
@@ -614,11 +613,14 @@ func _load_chart_file() -> bool:
 	file.close()
 	if not parsed is Array:
 		return false
+	var chart_shift := 0.0
+	if current_song_path == FAR_KID_PATH and not parsed.is_empty() and parsed[0] is Dictionary and float(parsed[0].get("time", 0.0)) < 1.0:
+		chart_shift = FAR_KID_INTRO_SHIFT
 	chart.clear()
 	for note in parsed:
 		if note is Dictionary and note.has("time") and note.has("lane"):
 			chart.append({
-				"time": clampf(float(note.time) + _song_timing_correction(), 0.0, song_length),
+				"time": clampf(float(note.time) + chart_shift, 0.0, song_length),
 				"lane": clampi(int(note.lane), 0, LANE_COUNT - 1)
 			})
 	_sort_chart()
@@ -632,14 +634,6 @@ func _sort_chart() -> void:
 
 func _sort_chart_notes(first: Dictionary, second: Dictionary) -> bool:
 	return float(first.time) < float(second.time)
-
-
-func _song_timing_correction() -> float:
-	if current_song_path == FAR_KID_PATH:
-		return FAR_KID_TIMING_CORRECTION
-	if current_song_path == HERO_PATH:
-		return HERO_TIMING_CORRECTION
-	return 0.0
 
 
 func _apply_hard_mode_accents() -> void:
@@ -1220,9 +1214,8 @@ func _build_song_chart() -> void:
 
 
 func _add_chart_note(time: float, lane: int) -> void:
-	var corrected_time := time + _song_timing_correction()
-	if corrected_time < song_length - 0.20:
-		chart.append({"time": corrected_time, "lane": lane})
+	if time < song_length - 0.20:
+		chart.append({"time": time, "lane": lane})
 
 
 func _draw() -> void:
