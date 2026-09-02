@@ -18,7 +18,7 @@ const PERFECT_WINDOW := 0.060
 const GREAT_WINDOW := 0.110
 const GOOD_WINDOW := 0.180
 const MISS_WINDOW := 0.220
-const FAR_KID_INTRO_SHIFT := 1.012
+const FAR_KID_INTRO_SHIFT := 1.092
 const HIT_EFFECT_DURATION := 0.68
 const MAX_LIFE := 100.0
 const LIFE_DRAIN_PER_SECOND := 0.055
@@ -76,7 +76,7 @@ var levels: Array = [
 		"notes": "Contratiempos rapidos / 4 carriles",
 		"song_path": FAR_KID_PATH,
 		"duration": 178.200,
-		"offset": 1.2790,
+		"offset": 1.3590,
 		"chart_path": "res://levels/far_kid_chart.json"
 	},
 	{
