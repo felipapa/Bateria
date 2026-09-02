@@ -617,10 +617,20 @@ func _load_chart_file() -> bool:
 	if current_song_path == FAR_KID_PATH and not parsed.is_empty() and parsed[0] is Dictionary and float(parsed[0].get("time", 0.0)) < 1.0:
 		chart_shift = FAR_KID_INTRO_SHIFT
 	chart.clear()
+	var loaded_at_time := {}
 	for note in parsed:
 		if note is Dictionary and note.has("time") and note.has("lane"):
+			var note_time := clampf(float(note.time) + chart_shift, 0.0, song_length)
+			var time_key := "%.4f" % note_time
+			var notes_at_time: Array = loaded_at_time.get(time_key, [])
+			if notes_at_time.size() >= 2:
+				continue
+			if int(note.lane) in notes_at_time:
+				continue
+			notes_at_time.append(int(note.lane))
+			loaded_at_time[time_key] = notes_at_time
 			chart.append({
-				"time": clampf(float(note.time) + chart_shift, 0.0, song_length),
+				"time": note_time,
 				"lane": clampi(int(note.lane), 0, LANE_COUNT - 1)
 			})
 	_sort_chart()
@@ -650,12 +660,6 @@ func _apply_hard_mode_accents() -> void:
 		for other in chart:
 			if is_equal_approx(float(other.time), float(note.time)):
 				same_time_count += 1
-		if same_time_count >= 2 and index % (18 if rank < 3 else 14) == 0:
-			var extra_lane := (int(note.lane) + 1 + int(index / 18)) % LANE_COUNT
-			var chord_key := "%.4f:%d" % [float(note.time), extra_lane]
-			if not occupied.has(chord_key):
-				occupied[chord_key] = true
-				additions.append({"time": float(note.time), "lane": extra_lane})
 		if index % (24 if rank == 0 else 18 if rank < 3 else 14) == 0:
 			var offbeat_time := float(note.time) + current_beat * 0.5
 			var offbeat_lane := (int(note.lane) + 2 + int(index / 12)) % LANE_COUNT
