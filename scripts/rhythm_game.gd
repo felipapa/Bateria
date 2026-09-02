@@ -18,7 +18,8 @@ const PERFECT_WINDOW := 0.060
 const GREAT_WINDOW := 0.110
 const GOOD_WINDOW := 0.180
 const MISS_WINDOW := 0.220
-const NOTE_TIMING_CORRECTION := 0.120
+const FAR_KID_TIMING_CORRECTION := 0.060
+const HERO_TIMING_CORRECTION := 0.006
 const HIT_EFFECT_DURATION := 0.68
 const MAX_LIFE := 100.0
 const LIFE_DRAIN_PER_SECOND := 0.055
@@ -70,13 +71,13 @@ var levels: Array = [
 		"subtitle": "The Offspring",
 		"difficulty": "HARD",
 		"rank": 2,
-		"bpm": 126.05,
-		"bpm_label": "126.05 BPM",
+		"bpm": 126.10,
+		"bpm_label": "126.10 BPM",
 		"length": "02:58",
 		"notes": "Contratiempos rapidos / 4 carriles",
 		"song_path": FAR_KID_PATH,
 		"duration": 178.200,
-		"offset": 0.2670,
+		"offset": 0.3270,
 		"chart_path": "res://levels/far_kid_chart.json"
 	},
 	{
@@ -84,13 +85,13 @@ var levels: Array = [
 		"subtitle": "Skillet",
 		"difficulty": "EXPERT",
 		"rank": 3,
-		"bpm": 141.59,
-		"bpm_label": "141.59 BPM",
+		"bpm": 142.00,
+		"bpm_label": "142.00 BPM",
 		"length": "03:17",
 		"notes": "Alta densidad / dobles y cortes",
 		"song_path": HERO_PATH,
 		"duration": 196.812,
-		"offset": 0.2482,
+		"offset": 0.2540,
 		"chart_path": "res://levels/hero_chart.json"
 	}
 ]
@@ -617,7 +618,7 @@ func _load_chart_file() -> bool:
 	for note in parsed:
 		if note is Dictionary and note.has("time") and note.has("lane"):
 			chart.append({
-				"time": clampf(float(note.time) + NOTE_TIMING_CORRECTION, 0.0, song_length),
+				"time": clampf(float(note.time) + _song_timing_correction(), 0.0, song_length),
 				"lane": clampi(int(note.lane), 0, LANE_COUNT - 1)
 			})
 	_sort_chart()
@@ -631,6 +632,14 @@ func _sort_chart() -> void:
 
 func _sort_chart_notes(first: Dictionary, second: Dictionary) -> bool:
 	return float(first.time) < float(second.time)
+
+
+func _song_timing_correction() -> float:
+	if current_song_path == FAR_KID_PATH:
+		return FAR_KID_TIMING_CORRECTION
+	if current_song_path == HERO_PATH:
+		return HERO_TIMING_CORRECTION
+	return 0.0
 
 
 func _apply_hard_mode_accents() -> void:
@@ -1211,7 +1220,7 @@ func _build_song_chart() -> void:
 
 
 func _add_chart_note(time: float, lane: int) -> void:
-	var corrected_time := time + NOTE_TIMING_CORRECTION
+	var corrected_time := time + _song_timing_correction()
 	if corrected_time < song_length - 0.20:
 		chart.append({"time": corrected_time, "lane": lane})
 
