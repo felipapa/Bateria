@@ -18,7 +18,7 @@ const PERFECT_WINDOW := 0.060
 const GREAT_WINDOW := 0.110
 const GOOD_WINDOW := 0.180
 const MISS_WINDOW := 0.220
-const FAR_KID_INTRO_SHIFT := 1.092
+const FAR_KID_FIRST_NOTE := 1.254
 const HIT_EFFECT_DURATION := 0.68
 const MAX_LIFE := 100.0
 const LIFE_DRAIN_PER_SECOND := 0.055
@@ -88,7 +88,7 @@ var levels: Array = [
 		"notes": "Contratiempos rapidos / 4 carriles",
 		"song_path": FAR_KID_PATH,
 		"duration": 178.200,
-		"offset": 1.3590,
+		"offset": 1.2540,
 		"chart_path": "res://levels/far_kid_chart.json"
 	},
 	{
@@ -640,8 +640,11 @@ func _load_chart_file() -> bool:
 	if not parsed is Array:
 		return false
 	var chart_shift := 0.0
-	if current_song_path == FAR_KID_PATH and not parsed.is_empty() and parsed[0] is Dictionary and float(parsed[0].get("time", 0.0)) < 0.4:
-		chart_shift = FAR_KID_INTRO_SHIFT
+	var first_source_time := -1.0
+	if not parsed.is_empty() and parsed[0] is Dictionary:
+		first_source_time = float(parsed[0].get("time", 0.0))
+	if current_song_path == FAR_KID_PATH and first_source_time >= 0.0 and absf(first_source_time - FAR_KID_FIRST_NOTE) > 0.15:
+		chart_shift = FAR_KID_FIRST_NOTE - first_source_time
 	chart.clear()
 	var loaded_at_time := {}
 	for note in parsed:
@@ -650,8 +653,8 @@ func _load_chart_file() -> bool:
 			var note_time := source_time + chart_shift
 			if current_song_path == THIS_LOVE_PATH:
 				note_time = 0.5050 + (source_time - 0.3991) * (60.0 / 94.83) / current_beat
-			elif current_song_path == FAR_KID_PATH and chart_shift > 0.0:
-				note_time = 1.3590 + (source_time - 0.2670) * (60.0 / 126.05) / current_beat
+			elif current_song_path == FAR_KID_PATH and not is_zero_approx(chart_shift):
+				note_time = FAR_KID_FIRST_NOTE + (source_time - first_source_time) * (60.0 / 126.05) / current_beat
 			note_time = clampf(note_time, 0.0, song_length)
 			var time_key := "%.4f" % note_time
 			var notes_at_time: Array = loaded_at_time.get(time_key, [])
@@ -692,7 +695,7 @@ func _apply_hard_mode_accents() -> void:
 		for other in chart:
 			if is_equal_approx(float(other.time), float(note.time)):
 				same_time_count += 1
-		if index % (24 if rank == 0 else 18 if rank < 3 else 14) == 0:
+		if index % (24 if rank == 0 else 12 if rank < 3 else 10) == 0:
 			var offbeat_time := float(note.time) + current_beat * 0.5
 			var offbeat_lane := (int(note.lane) + 2 + int(index / 12)) % LANE_COUNT
 			var offbeat_key := "%.4f:%d" % [offbeat_time, offbeat_lane]
