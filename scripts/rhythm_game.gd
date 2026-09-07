@@ -68,13 +68,13 @@ var levels: Array = [
 		"subtitle": "Maroon 5",
 		"difficulty": "NORMAL",
 		"rank": 0,
-		"bpm": 94.83,
-		"bpm_label": "94.83 BPM",
+		"bpm": 95.10,
+		"bpm_label": "95.10 BPM",
 		"length": "03:26",
 		"notes": "Intro, versos y coros / 4 carriles",
 		"song_path": THIS_LOVE_PATH,
 		"duration": 205.311,
-		"offset": 0.3991,
+		"offset": 0.5050,
 		"chart_path": "res://levels/this_love_chart.json"
 	},
 	{
@@ -82,8 +82,8 @@ var levels: Array = [
 		"subtitle": "The Offspring",
 		"difficulty": "HARD",
 		"rank": 2,
-		"bpm": 126.10,
-		"bpm_label": "126.10 BPM",
+		"bpm": 126.20,
+		"bpm_label": "126.20 BPM",
 		"length": "02:58",
 		"notes": "Contratiempos rapidos / 4 carriles",
 		"song_path": FAR_KID_PATH,
@@ -640,13 +640,19 @@ func _load_chart_file() -> bool:
 	if not parsed is Array:
 		return false
 	var chart_shift := 0.0
-	if current_song_path == FAR_KID_PATH and not parsed.is_empty() and parsed[0] is Dictionary and float(parsed[0].get("time", 0.0)) < 1.0:
+	if current_song_path == FAR_KID_PATH and not parsed.is_empty() and parsed[0] is Dictionary and float(parsed[0].get("time", 0.0)) < 0.4:
 		chart_shift = FAR_KID_INTRO_SHIFT
 	chart.clear()
 	var loaded_at_time := {}
 	for note in parsed:
 		if note is Dictionary and note.has("time") and note.has("lane"):
-			var note_time := clampf(float(note.time) + chart_shift, 0.0, song_length)
+			var source_time := float(note.time)
+			var note_time := source_time + chart_shift
+			if current_song_path == THIS_LOVE_PATH:
+				note_time = 0.5050 + (source_time - 0.3991) * (60.0 / 94.83) / current_beat
+			elif current_song_path == FAR_KID_PATH and chart_shift > 0.0:
+				note_time = 1.3590 + (source_time - 0.2670) * (60.0 / 126.05) / current_beat
+			note_time = clampf(note_time, 0.0, song_length)
 			var time_key := "%.4f" % note_time
 			var notes_at_time: Array = loaded_at_time.get(time_key, [])
 			if notes_at_time.size() >= 2:

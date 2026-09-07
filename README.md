@@ -62,8 +62,8 @@ completamente vacio para que coloques las notas manualmente. Guarda con `S`; el
 nivel quedara registrado en `levels/custom_levels.json` y su chart se guardara
 en `levels/`.
 
-El nivel de prueba usa la cancion `This Love` de Maroon 5 a 94.83 BPM, con un
-offset inicial de 0.399 segundos detectado desde el audio. Las
+El nivel de prueba usa la cancion `This Love` de Maroon 5 a 95.10 BPM, con un
+offset inicial de 0.505 segundos detectado desde el audio. Las
 ventanas actuales son `Perfect` +/-60 ms, `Great` +/-110 ms y `Good` +/-180 ms.
 Los aciertos muestran una explosion en el receptor, hacen crecer el juicio en
 pantalla, reproducen un golpe de bateria y generan una vibracion breve con
