@@ -1,6 +1,6 @@
-# Beatforge
+# Pulsora
 
-Prototipo de juego de ritmo de cuatro botones hecho en Godot 4, con una
+Juego de ritmo de cuatro botones hecho en Godot 4, con una
 autopista larga y de perspectiva suave inspirada en Guitar Hero. La identidad
 visual usa piedra, vitral roto, cadenas, runas doradas y fuego tenue. El nivel
 se genera desde `scripts/rhythm_game.gd`.

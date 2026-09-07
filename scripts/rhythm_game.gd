@@ -32,10 +32,10 @@ const DRUM_SAMPLE_LENGTHS := [0.43, 0.26, 0.33, 0.34]
 
 const LANE_KEYS := ["D", "F", "J", "K"]
 const LANE_COLORS := [
-	Color("#52d6ff"),
-	Color("#8d7bff"),
-	Color("#ff72b6"),
-	Color("#ffc857")
+	Color("#3B82F6"),
+	Color("#8B5CF6"),
+	Color("#F97316"),
+	Color("#FACC15")
 ]
 const KEY_TO_LANE := {
 	KEY_D: 0,
@@ -49,6 +49,18 @@ const KEY_TO_LANE := {
 }
 const CUSTOM_LEVELS_PATH := "res://levels/custom_levels.json"
 const BUILTIN_LEVEL_COUNT := 3
+const BRAND_NAME := "PULSORA"
+const BRAND_TAGLINE := "NEON RHYTHM LAB"
+const COLOR_BACKGROUND := Color("#0F172A")
+const COLOR_BLUE := Color("#3B82F6")
+const COLOR_GREEN := Color("#22C55E")
+const COLOR_YELLOW := Color("#FACC15")
+const COLOR_ORANGE := Color("#F97316")
+const COLOR_RED := Color("#EF4444")
+const COLOR_WHITE := Color("#F8FAFC")
+const COLOR_PANEL := Color("#1E293B")
+const COLOR_LIGHT := Color("#CBD5E1")
+const COLOR_VIOLET := Color("#8B5CF6")
 
 var levels: Array = [
 	{
@@ -1246,31 +1258,43 @@ func _draw() -> void:
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
+func _draw_brand(position: Vector2, compact: bool) -> void:
+	var radius := 18.0 if compact else 23.0
+	draw_circle(position, radius + 5.0, Color(COLOR_VIOLET, 0.12))
+	draw_arc(position, radius, -PI * 0.82, PI * 0.82, 24, COLOR_BLUE, 3.0)
+	draw_arc(position, radius - 6.0, PI * 0.18, TAU * 0.82, 20, COLOR_GREEN, 2.0)
+	draw_line(position + Vector2(-radius * 0.72, 0.0), position + Vector2(radius * 0.72, 0.0), COLOR_YELLOW, 2.0)
+	draw_circle(position, 5.0, COLOR_ORANGE)
+	var text_position := position + Vector2(radius + 15.0, 7.0)
+	draw_string(fallback_font, text_position, BRAND_NAME, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 28 if not compact else 22, COLOR_WHITE)
+	if not compact:
+		draw_string(fallback_font, text_position + Vector2(1.0, 22.0), BRAND_TAGLINE, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 10, COLOR_LIGHT)
+
+
 func _draw_menu() -> void:
 	var viewport_size := get_viewport_rect().size
 	_draw_animated_background(viewport_size, menu_time)
+	_draw_brand(Vector2(66.0, 48.0), false)
 
-	draw_string(fallback_font, Vector2(62.0, 68.0), "BEATFORGE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 34, Color("#f2f5ff"))
-	draw_string(fallback_font, Vector2(66.0, 94.0), "RHYTHM STAGE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
-	draw_string(fallback_font, Vector2(66.0, 168.0), "SELECCION DE NIVEL", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, Color("#d8e2ff"))
-	draw_string(fallback_font, Vector2(66.0, 195.0), "Elige una pista para comenzar", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#778bbd"))
+	draw_string(fallback_font, Vector2(66.0, 168.0), "SELECCION DE NIVEL", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, COLOR_WHITE)
+	draw_string(fallback_font, Vector2(66.0, 195.0), "Elige una pista para comenzar", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_LIGHT)
 
 	var card_size := Vector2(minf(700.0, viewport_size.x - 132.0), 210.0)
 	var card_position := Vector2((viewport_size.x - card_size.x) * 0.5, 235.0)
 	var card := Rect2(card_position, card_size)
-	draw_rect(card, Color("#101a36"))
-	draw_rect(card, Color("#536aa5"), false, 2.0)
+	draw_rect(card, COLOR_PANEL)
+	draw_rect(card, COLOR_BLUE, false, 2.0)
 	draw_rect(Rect2(card_position, Vector2(7.0, card_size.y)), LANE_COLORS[selected_level % LANE_COUNT])
 
 	var level: Dictionary = levels[selected_level]
-	draw_string(fallback_font, card_position + Vector2(34.0, 50.0), "%02d" % (selected_level + 1), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, Color("#7f94ca"))
-	draw_string(fallback_font, card_position + Vector2(92.0, 51.0), str(level.title), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 27, Color.WHITE)
-	draw_string(fallback_font, card_position + Vector2(92.0, 78.0), str(level.subtitle), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#a9b8df"))
-	draw_string(fallback_font, card_position + Vector2(34.0, 132.0), "DIFICULTAD  " + str(level.difficulty), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#8fffd6"))
-	draw_string(fallback_font, card_position + Vector2(220.0, 132.0), str(level.bpm_label), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#ffc857"))
-	draw_string(fallback_font, card_position + Vector2(350.0, 132.0), str(level.length), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#a9b8df"))
-	draw_string(fallback_font, card_position + Vector2(34.0, 174.0), str(level.notes), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#778bbd"))
-	draw_string(fallback_font, card_position + Vector2(card_size.x - 260.0, 174.0), "ENTER  JUGAR    E  EDITOR", HORIZONTAL_ALIGNMENT_CENTER, 220.0, 14, Color("#ffffff"))
+	draw_string(fallback_font, card_position + Vector2(34.0, 50.0), "%02d" % (selected_level + 1), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, COLOR_LIGHT)
+	draw_string(fallback_font, card_position + Vector2(92.0, 51.0), str(level.title), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 27, COLOR_WHITE)
+	draw_string(fallback_font, card_position + Vector2(92.0, 78.0), str(level.subtitle), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, COLOR_LIGHT)
+	draw_string(fallback_font, card_position + Vector2(34.0, 132.0), "DIFICULTAD  " + str(level.difficulty), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_GREEN)
+	draw_string(fallback_font, card_position + Vector2(220.0, 132.0), str(level.bpm_label), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_YELLOW)
+	draw_string(fallback_font, card_position + Vector2(350.0, 132.0), str(level.length), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_LIGHT)
+	draw_string(fallback_font, card_position + Vector2(34.0, 174.0), str(level.notes), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_LIGHT)
+	draw_string(fallback_font, card_position + Vector2(card_size.x - 260.0, 174.0), "ENTER  JUGAR    E  EDITOR", HORIZONTAL_ALIGNMENT_CENTER, 220.0, 14, COLOR_WHITE)
 
 	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "ARRIBA / ABAJO seleccionar    ENTER jugar    E editor    N nuevo    X borrar cancion    C borrar chart    T tabla", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
 	draw_string(fallback_font, Vector2(viewport_size.x - 260.0, viewport_size.y - 46.0), "NIVEL  %02d / %02d" % [selected_level + 1, levels.size()], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#6678aa"))
@@ -1280,8 +1304,8 @@ func _draw_name_entry() -> void:
 	var viewport_size := get_viewport_rect().size
 	_draw_animated_background(viewport_size, menu_time)
 	var level: Dictionary = levels[selected_level]
-	draw_string(fallback_font, Vector2(62.0, 68.0), "BEATFORGE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 34, Color("#f2f5ff"))
-	draw_string(fallback_font, Vector2(66.0, 94.0), "PREPARA TU PARTIDA", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
+	_draw_brand(Vector2(66.0, 48.0), false)
+	draw_string(fallback_font, Vector2(66.0, 168.0), "PREPARA TU PARTIDA", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, COLOR_LIGHT)
 	var panel := Rect2((viewport_size.x - 620.0) * 0.5, 190.0, 620.0, 265.0)
 	draw_rect(panel, Color("#101a36"))
 	draw_rect(panel, Color("#806a45"), false, 2.0)
@@ -1299,8 +1323,8 @@ func _draw_name_entry() -> void:
 func _draw_new_level() -> void:
 	var viewport_size := get_viewport_rect().size
 	_draw_animated_background(viewport_size, menu_time)
-	draw_string(fallback_font, Vector2(62.0, 68.0), "BEATFORGE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 34, Color("#f2f5ff"))
-	draw_string(fallback_font, Vector2(66.0, 94.0), "NUEVO NIVEL", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
+	_draw_brand(Vector2(66.0, 48.0), false)
+	draw_string(fallback_font, Vector2(66.0, 168.0), "NUEVO NIVEL", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, COLOR_LIGHT)
 	var panel := Rect2((viewport_size.x - 780.0) * 0.5, 150.0, 780.0, 390.0)
 	draw_rect(panel, Color("#101a36"))
 	draw_rect(panel, Color("#806a45"), false, 2.0)
@@ -1343,8 +1367,8 @@ func _draw_scores() -> void:
 	var viewport_size := get_viewport_rect().size
 	_draw_animated_background(viewport_size, menu_time)
 	var level: Dictionary = levels[selected_level]
-	draw_string(fallback_font, Vector2(62.0, 68.0), "BEATFORGE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 34, Color("#f2f5ff"))
-	draw_string(fallback_font, Vector2(66.0, 94.0), "TABLA DE PUNTUACIONES", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
+	_draw_brand(Vector2(66.0, 48.0), false)
+	draw_string(fallback_font, Vector2(66.0, 168.0), "TABLA DE PUNTUACIONES", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, COLOR_LIGHT)
 	draw_string(fallback_font, Vector2(66.0, 154.0), "ARRIBA / ABAJO cambia de nivel", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#778bbd"))
 	draw_string(fallback_font, Vector2(viewport_size.x - 280.0, 154.0), str(level.title), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 17, Color("#ffc857"))
 
@@ -1374,7 +1398,8 @@ func _draw_scores() -> void:
 func _draw_editor() -> void:
 	var viewport_size := get_viewport_rect().size
 	_draw_animated_background(viewport_size, menu_time)
-	draw_string(fallback_font, Vector2(34.0, 42.0), "BEATFORGE  /  LEVEL EDITOR", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 24, Color("#f2f5ff"))
+	_draw_brand(Vector2(48.0, 34.0), true)
+	draw_string(fallback_font, Vector2(180.0, 42.0), "LEVEL EDITOR", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 20, COLOR_WHITE)
 	var editor_level: Dictionary = levels[selected_level]
 	draw_string(fallback_font, Vector2(36.0, 64.0), str(editor_level.title) + "  /  " + str(editor_level.bpm_label), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#8296c9"))
 
@@ -1448,24 +1473,24 @@ func _draw_game() -> void:
 		Vector2(field_left + field_width, highway_bottom),
 		Vector2(field_left, highway_bottom)
 	])
-	draw_colored_polygon(highway, Color("#10182d"))
+	draw_colored_polygon(highway, Color("#0B1224"))
 
 	for row in range(9):
 		var progress := float(row) / 8.0
 		var y := lerpf(SPAWN_Y, highway_bottom, progress)
 		var width_at := lerpf(top_width, field_width, progress)
 		var left_at := field_left + (field_width - width_at) * 0.5
-		draw_line(Vector2(left_at, y), Vector2(left_at + width_at, y), Color(0.42, 0.34, 0.26, 0.42), 1.0)
+		draw_line(Vector2(left_at, y), Vector2(left_at + width_at, y), Color(0.23, 0.38, 0.65, 0.42), 1.0)
 
 	for lane in range(1, LANE_COUNT):
 		var top_x := field_left + (field_width - top_width) * 0.5 + top_width * float(lane) / LANE_COUNT
 		var bottom_x := field_left + field_width * float(lane) / LANE_COUNT
-		draw_line(Vector2(top_x, SPAWN_Y), Vector2(bottom_x, highway_bottom), Color("#6c573c"), 2.0)
+		draw_line(Vector2(top_x, SPAWN_Y), Vector2(bottom_x, highway_bottom), Color("#334B78"), 2.0)
 
 	var left_top := field_left + (field_width - top_width) * 0.5
 	var right_top := left_top + top_width
-	draw_line(Vector2(left_top, SPAWN_Y), Vector2(field_left, highway_bottom), Color("#b7c5e8"), 3.0)
-	draw_line(Vector2(right_top, SPAWN_Y), Vector2(field_left + field_width, highway_bottom), Color("#b7c5e8"), 3.0)
+	draw_line(Vector2(left_top, SPAWN_Y), Vector2(field_left, highway_bottom), COLOR_BLUE, 3.0)
+	draw_line(Vector2(right_top, SPAWN_Y), Vector2(field_left + field_width, highway_bottom), COLOR_VIOLET, 3.0)
 
 	# Notes use the same perspective interpolation as the highway lines.
 	for note in active_notes:
@@ -1499,10 +1524,10 @@ func _draw_game() -> void:
 
 	# Receptors sit at the wide end of the highway.
 	var receptor_lane_width := field_width / LANE_COUNT
-	draw_rect(Rect2(field_left - 22.0, JUDGEMENT_Y - 25.0, field_width + 44.0, 74.0), Color("#292331"))
-	draw_rect(Rect2(field_left - 22.0, JUDGEMENT_Y - 25.0, field_width + 44.0, 74.0), Color("#806a45"), false, 2.0)
-	draw_line(Vector2(field_left - 8.0, JUDGEMENT_Y + 28.0), Vector2(field_left + field_width + 8.0, JUDGEMENT_Y + 28.0), Color("#4b3b2d"), 2.0)
-	var line_color := Color("#ffffff") if pulse_timer > 0.0 else Color("#8da5db")
+	draw_rect(Rect2(field_left - 22.0, JUDGEMENT_Y - 25.0, field_width + 44.0, 74.0), COLOR_PANEL)
+	draw_rect(Rect2(field_left - 22.0, JUDGEMENT_Y - 25.0, field_width + 44.0, 74.0), COLOR_VIOLET, false, 2.0)
+	draw_line(Vector2(field_left - 8.0, JUDGEMENT_Y + 28.0), Vector2(field_left + field_width + 8.0, JUDGEMENT_Y + 28.0), Color("#334155"), 2.0)
+	var line_color := COLOR_WHITE if pulse_timer > 0.0 else COLOR_BLUE
 	draw_line(Vector2(field_left - 10.0, JUDGEMENT_Y), Vector2(field_left + field_width + 10.0, JUDGEMENT_Y), line_color, 3.0)
 	for lane in range(LANE_COUNT):
 		var center_x := field_left + receptor_lane_width * (lane + 0.5)
@@ -1511,10 +1536,10 @@ func _draw_game() -> void:
 		var receptor_color: Color = LANE_COLORS[lane]
 		if lane_flash[lane] <= 0.0:
 			receptor_color = Color(receptor_color, 0.38)
-		draw_circle(Vector2(center_x, JUDGEMENT_Y), radius, Color(0.02, 0.04, 0.10, 0.9))
+		draw_circle(Vector2(center_x, JUDGEMENT_Y), radius, Color(0.03, 0.07, 0.16, 0.95))
 		draw_arc(Vector2(center_x, JUDGEMENT_Y), radius, 0.0, TAU, 28, receptor_color, 4.0)
 		draw_circle(Vector2(center_x, JUDGEMENT_Y), radius * 0.30, receptor_color)
-		draw_string(fallback_font, Vector2(center_x - receptor_lane_width * 0.5, JUDGEMENT_Y + 56.0), LANE_KEYS[lane], HORIZONTAL_ALIGNMENT_CENTER, receptor_lane_width, 17, Color.WHITE)
+		draw_string(fallback_font, Vector2(center_x - receptor_lane_width * 0.5, JUDGEMENT_Y + 56.0), LANE_KEYS[lane], HORIZONTAL_ALIGNMENT_CENTER, receptor_lane_width, 17, COLOR_WHITE)
 	_draw_hit_effects(field_left, field_width)
 
 	if song_time < 0.0:
@@ -1576,75 +1601,51 @@ func _draw_side_flash(viewport_size: Vector2) -> void:
 
 
 func _draw_animated_background(viewport_size: Vector2, animation_time: float) -> void:
-	draw_rect(Rect2(Vector2.ZERO, viewport_size), Color("#07050c"))
-	draw_rect(Rect2(0.0, 74.0, viewport_size.x, 145.0), Color("#171126"))
+	draw_rect(Rect2(Vector2.ZERO, viewport_size), COLOR_BACKGROUND)
+	draw_rect(Rect2(0.0, 100.0, viewport_size.x, viewport_size.y - 100.0), Color("#111D35"))
 	var pulse := 0.5 + 0.5 * sin(animation_time * 2.0)
-	var center_x := viewport_size.x * 0.5
-	# Broken cathedral window, deliberately low contrast so the highway stays readable.
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(center_x - 245.0, 205.0), Vector2(center_x - 205.0, 118.0),
-		Vector2(center_x, 86.0), Vector2(center_x + 205.0, 118.0),
-		Vector2(center_x + 245.0, 205.0)
-	]), Color("#241633"))
-	var glass_colors := [Color("#58365f", 0.65), Color("#8d603e", 0.48), Color("#344a70", 0.58), Color("#75405d", 0.52), Color("#3c5a68", 0.52)]
-	for pane in range(5):
-		var pane_x := center_x - 190.0 + pane * 95.0
-		draw_rect(Rect2(pane_x, 130.0 + absf(2 - pane) * 12.0, 72.0, 75.0 - absf(2 - pane) * 9.0), glass_colors[pane])
-	# Stone mullions and the broken cross at the center.
-	for pane in range(6):
-		var mullion_x := center_x - 238.0 + pane * 95.0
-		draw_line(Vector2(mullion_x, 112.0), Vector2(mullion_x, 210.0), Color("#4e3c55"), 5.0)
-	draw_line(Vector2(center_x - 212.0, 167.0), Vector2(center_x + 212.0, 167.0), Color("#4e3c55"), 5.0)
-	draw_line(Vector2(center_x, 94.0), Vector2(center_x, 207.0), Color("#4e3c55"), 5.0)
-	# Iron chain silhouettes on either side of the stage.
-	for side in range(2):
-		var chain_x := 34.0 if side == 0 else viewport_size.x - 34.0
-		for link in range(5):
-			var link_y := 108.0 + link * 28.0 + sin(animation_time * 1.2 + link) * 3.0
-			draw_arc(Vector2(chain_x, link_y), 12.0, 0.0, PI, 14, Color("#62546a"), 3.0)
-			draw_arc(Vector2(chain_x, link_y), 12.0, PI, TAU, 14, Color("#302936"), 3.0)
-	# Small altar flames at the edges react to the beat pulse.
-	for side in range(2):
-		var flame_x := 88.0 if side == 0 else viewport_size.x - 88.0
-		var flame_height := 28.0 + pulse * 20.0
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(flame_x - 16.0, 213.0), Vector2(flame_x - 7.0, 213.0 - flame_height * 0.55),
-			Vector2(flame_x + 1.0, 213.0 - flame_height), Vector2(flame_x + 8.0, 213.0 - flame_height * 0.48),
-			Vector2(flame_x + 18.0, 213.0)
-		]), Color("#a7432e", 0.48))
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(flame_x - 7.0, 213.0), Vector2(flame_x + 1.0, 213.0 - flame_height * 0.68),
-			Vector2(flame_x + 9.0, 213.0)
-		]), Color("#e3a33f", 0.56))
+	var center := Vector2(viewport_size.x * 0.72, viewport_size.y * 0.28)
+	draw_circle(center, 210.0 + pulse * 18.0, Color(COLOR_VIOLET, 0.035))
+	draw_circle(center, 125.0 + pulse * 10.0, Color(COLOR_BLUE, 0.045))
+	for x in range(0, int(viewport_size.x) + 1, 48):
+		draw_line(Vector2(x, 100.0), Vector2(x, viewport_size.y), Color(0.20, 0.32, 0.52, 0.10), 1.0)
+	for y in range(116, int(viewport_size.y), 48):
+		draw_line(Vector2(0.0, y), Vector2(viewport_size.x, y), Color(0.20, 0.32, 0.52, 0.10), 1.0)
+	for index in range(7):
+		var x := 36.0 + index * 180.0
+		var height := 20.0 + fmod(animation_time * (8.0 + index), 42.0)
+		draw_line(Vector2(x, viewport_size.y - 36.0), Vector2(x, viewport_size.y - 36.0 - height), Color(COLOR_BLUE, 0.18), 3.0)
+		if index % 2 == 0:
+			draw_circle(Vector2(x, viewport_size.y - 36.0 - height), 3.0, Color(COLOR_GREEN, 0.60))
 
 
 func _draw_header(viewport_size: Vector2) -> void:
-	draw_string(fallback_font, Vector2(34.0, 40.0), "BEATFORGE", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 24, Color("#f2f5ff"))
+	_draw_brand(Vector2(48.0, 34.0), true)
 	var game_level: Dictionary = levels[selected_level]
-	draw_string(fallback_font, Vector2(36.0, 62.0), str(game_level.title) + "  /  " + str(game_level.bpm_label), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#8296c9"))
+	draw_string(fallback_font, Vector2(36.0, 62.0), str(game_level.title) + "  /  " + str(game_level.bpm_label), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_LIGHT)
 	var accuracy := _accuracy_percent()
-	draw_string(fallback_font, Vector2(viewport_size.x - 265.0, 36.0), "SCORE %07d" % score, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, Color("#f2f5ff"))
-	draw_string(fallback_font, Vector2(viewport_size.x - 265.0, 59.0), "%d COMBO    %.1f%%" % [combo, accuracy], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#9aacdb"))
-	draw_string(fallback_font, Vector2(viewport_size.x - 265.0, 80.0), "VIDA %03d" % int(life), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 11, Color("#c9b58a"))
-	draw_rect(Rect2(viewport_size.x - 215.0, 70.0, 180.0, 12.0), Color("#251b27"))
-	var life_color := Color("#d6a642") if life > 35.0 else Color("#b84646")
+	draw_string(fallback_font, Vector2(viewport_size.x - 265.0, 36.0), "SCORE %07d" % score, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, COLOR_WHITE)
+	draw_string(fallback_font, Vector2(viewport_size.x - 265.0, 59.0), "%d COMBO    %.1f%%" % [combo, accuracy], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, COLOR_LIGHT)
+	draw_string(fallback_font, Vector2(viewport_size.x - 265.0, 80.0), "VIDA %03d" % int(life), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 11, COLOR_GREEN)
+	draw_rect(Rect2(viewport_size.x - 215.0, 70.0, 180.0, 12.0), Color("#0B1224"))
+	var life_color := COLOR_GREEN if life > 35.0 else COLOR_RED
 	draw_rect(Rect2(viewport_size.x - 215.0, 70.0, 180.0 * life / MAX_LIFE, 12.0), life_color)
-	draw_rect(Rect2(viewport_size.x - 215.0, 70.0, 180.0, 12.0), Color("#806a45"), false, 1.0)
-	draw_string(fallback_font, Vector2(34.0, viewport_size.y - 24.0), "D F J K / FLECHAS tocar    ESPACIO pausa    ESC menu    R reiniciar", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#7084b5"))
+	draw_rect(Rect2(viewport_size.x - 215.0, 70.0, 180.0, 12.0), COLOR_LIGHT, false, 1.0)
+	draw_string(fallback_font, Vector2(34.0, viewport_size.y - 24.0), "D F J K / FLECHAS tocar    ESPACIO pausa    ESC menu    R reiniciar", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_LIGHT)
 
 
 func _draw_results(field_left: float, field_width: float) -> void:
 	var panel := Rect2(field_left + 90.0, 205.0, field_width - 180.0, 290.0)
-	draw_rect(panel, Color("#101a36"))
-	draw_rect(panel, Color("#536aa5"), false, 2.0)
+	draw_rect(panel, COLOR_PANEL)
+	draw_rect(panel, COLOR_BLUE, false, 2.0)
 	var result_title := "GAME OVER" if game_over else "NIVEL COMPLETADO"
-	var result_color := Color("#ff6b63") if game_over else Color.WHITE
+	var result_color := COLOR_RED if game_over else COLOR_GREEN
 	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 54.0), result_title, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 30, result_color)
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 82.0), str(player_name), HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 14, Color("#a9b8df"))
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 102.0), "SCORE  %07d" % score, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 24, Color("#ffc857"))
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 143.0), "PERFECT %d    GREAT %d    GOOD %d    MISS %d" % [perfects, greats, goods, misses], HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 15, Color("#b8c7eb"))
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 185.0), "MAX COMBO  %d    ACCURACY  %.1f%%" % [max_combo, _accuracy_percent()], HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 17, Color("#f2f5ff"))
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 238.0), "R reiniciar    ESC menu", HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 16, Color("#8fffd6"))
+	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 82.0), str(player_name), HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 14, COLOR_LIGHT)
+	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 102.0), "SCORE  %07d" % score, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 24, COLOR_YELLOW)
+	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 143.0), "PERFECT %d    GREAT %d    GOOD %d    MISS %d" % [perfects, greats, goods, misses], HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 15, COLOR_LIGHT)
+	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 185.0), "MAX COMBO  %d    ACCURACY  %.1f%%" % [max_combo, _accuracy_percent()], HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 17, COLOR_WHITE)
+	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 238.0), "R reiniciar    ESC menu", HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 16, COLOR_GREEN)
 
 
 func _accuracy_percent() -> float:
