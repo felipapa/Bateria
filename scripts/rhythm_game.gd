@@ -518,6 +518,10 @@ func _handle_editor_input(event: InputEvent) -> void:
 	elif keycode == KEY_3:
 		editor_subdivision = 4
 		editor_message = "Snap: semicorcheas"
+	elif key_event.unicode == 91:
+		_shift_all_chart_notes(-current_beat / 4.0)
+	elif key_event.unicode == 93:
+		_shift_all_chart_notes(current_beat / 4.0)
 	elif keycode == KEY_ENTER:
 		_start_level()
 
@@ -603,6 +607,16 @@ func _remove_editor_note(time: float, lane: int) -> void:
 		editor_message = "Nota borrada"
 	else:
 		editor_message = "No hay nota cerca"
+
+
+func _shift_all_chart_notes(amount: float) -> void:
+	for index in range(chart.size()):
+		var note: Dictionary = chart[index]
+		note.time = clampf(float(note.time) + amount, 0.0, song_length - 0.05)
+		chart[index] = note
+	_sort_chart()
+	editor_time = clampf(editor_time + amount, 0.0, song_length)
+	editor_message = "Todos los tiles %s %.3f s" % ["adelantados" if amount > 0.0 else "retrasados", absf(amount)]
 
 
 func _save_chart() -> void:
@@ -1271,6 +1285,13 @@ func _draw_brand(position: Vector2, compact: bool) -> void:
 		draw_string(fallback_font, text_position + Vector2(1.0, 22.0), BRAND_TAGLINE, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 10, COLOR_LIGHT)
 
 
+func _draw_action_button(rect: Rect2, label: String, accent: Color) -> void:
+	draw_rect(rect, Color("#111C34"))
+	draw_rect(rect, Color(accent, 0.70), false, 2.0)
+	draw_circle(rect.position + Vector2(15.0, rect.size.y * 0.5), 3.0, accent)
+	draw_string(fallback_font, rect.position + Vector2(27.0, rect.size.y * 0.5 + 5.0), label, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 34.0, 13, COLOR_WHITE)
+
+
 func _draw_menu() -> void:
 	var viewport_size := get_viewport_rect().size
 	_draw_animated_background(viewport_size, menu_time)
@@ -1295,6 +1316,12 @@ func _draw_menu() -> void:
 	draw_string(fallback_font, card_position + Vector2(350.0, 132.0), str(level.length), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_LIGHT)
 	draw_string(fallback_font, card_position + Vector2(34.0, 174.0), str(level.notes), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_LIGHT)
 	draw_string(fallback_font, card_position + Vector2(card_size.x - 260.0, 174.0), "ENTER  JUGAR    E  EDITOR", HORIZONTAL_ALIGNMENT_CENTER, 220.0, 14, COLOR_WHITE)
+	var button_y := card_position.y + card_size.y + 24.0
+	var button_width := (card_size.x - 18.0) / 4.0
+	_draw_action_button(Rect2(card_position.x, button_y, button_width, 42.0), "ENTER  JUGAR", COLOR_GREEN)
+	_draw_action_button(Rect2(card_position.x + button_width + 6.0, button_y, button_width, 42.0), "E  EDITAR", COLOR_VIOLET)
+	_draw_action_button(Rect2(card_position.x + (button_width + 6.0) * 2.0, button_y, button_width, 42.0), "N  NUEVO", COLOR_ORANGE)
+	_draw_action_button(Rect2(card_position.x + (button_width + 6.0) * 3.0, button_y, button_width, 42.0), "T  TABLA", COLOR_BLUE)
 
 	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "ARRIBA / ABAJO seleccionar    ENTER jugar    E editor    N nuevo    X borrar cancion    C borrar chart    T tabla", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
 	draw_string(fallback_font, Vector2(viewport_size.x - 260.0, viewport_size.y - 46.0), "NIVEL  %02d / %02d" % [selected_level + 1, levels.size()], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#6678aa"))
@@ -1450,8 +1477,12 @@ func _draw_editor() -> void:
 	draw_string(fallback_font, Vector2(viewport_size.x - 320.0, 126.0), "NOTAS  %03d" % chart.size(), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, Color("#8fffd6"))
 	draw_string(fallback_font, Vector2(72.0, 530.0), "Click izquierdo: colocar/quitar    Click derecho: borrar    Click central: mover cursor", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#a9b8df"))
 	draw_string(fallback_font, Vector2(72.0, 562.0), "ESPACIO %s    1 negras    2 corcheas    3 semicorcheas" % ("PAUSAR" if editor_playing else "REPRODUCIR"), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
-	draw_string(fallback_font, Vector2(72.0, 588.0), "S guardar    L cargar    ENTER probar nivel    ESC menu", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
+	draw_string(fallback_font, Vector2(72.0, 588.0), "S guardar    L cargar    [ retrasar    ] adelantar    ENTER probar    ESC menu", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
 	draw_string(fallback_font, Vector2(72.0, 635.0), editor_message, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 15, Color("#ffc857"))
+	_draw_action_button(Rect2(72.0, 652.0, 160.0, 38.0), "ESPACIO  PLAY", COLOR_GREEN)
+	_draw_action_button(Rect2(242.0, 652.0, 160.0, 38.0), "S  GUARDAR", COLOR_BLUE)
+	_draw_action_button(Rect2(412.0, 652.0, 190.0, 38.0), "[ ]  MOVER TILES", COLOR_ORANGE)
+	_draw_action_button(Rect2(612.0, 652.0, 190.0, 38.0), "ENTER  PROBAR", COLOR_VIOLET)
 
 
 func _draw_game() -> void:
