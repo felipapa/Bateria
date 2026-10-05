@@ -69,6 +69,22 @@ Los aciertos muestran una explosion en el receptor, hacen crecer el juicio en
 pantalla, reproducen un golpe de bateria y generan una vibracion breve con
 destellos laterales. Los fallos producen un golpe grave de error.
 
+## Pad fisico con Arduino
+
+El juego puede recibir golpes de un sensor tap/vibracion (KY-031 o SW-420)
+conectado a un Arduino. El sketch esta en `arduino/pulsora_pad/`.
+
+1. Conecta el modulo: `DO` del sensor al pin `2`, `VCC` a `5V` y `GND` a `GND`.
+2. Abre `arduino/pulsora_pad/pulsora_pad.ino` en el IDE de Arduino y subelo.
+3. Cierra el monitor serie y conecta el Arduino por USB.
+4. Ejecuta el juego: detecta el puerto `/dev/ttyACM*` o `/dev/ttyUSB*` solo.
+5. Cada toque del sensor reemplaza a la tecla `D`. Si usas mas sensores,
+   cambia el canal en el sketch enviando `'2'`, `'3'` o `'4'` para las teclas
+   `F`, `J` y `K`.
+
+Cuando el pad esta conectado, el menu muestra `PAD ARDUINO` en verde. Si no hay
+placa conectada, el juego funciona igual con el teclado.
+
 ## Cancion actual
 
 El proyecto incluye tres canciones en `.mp3`: `This Love` de Maroon 5

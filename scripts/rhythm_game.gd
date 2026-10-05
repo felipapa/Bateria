@@ -29,6 +29,9 @@ const SCORES_PATH := "user://beatforge_scores.json"
 const CUSTOM_DIFFICULTIES := ["EASY", "NORMAL", "HARD", "EXPERT"]
 const DRUM_SAMPLE_STARTS := [0.451, 0.979, 1.357, 1.740]
 const DRUM_SAMPLE_LENGTHS := [0.43, 0.26, 0.33, 0.34]
+const TAP_SERIAL_PORT := "auto"
+const TAP_SERIAL_BAUD := 9600
+const TAP_SERIAL_CANDIDATES := ["/dev/ttyACM0", "/dev/ttyACM1", "/dev/ttyUSB0", "/dev/ttyUSB1"]
 
 const LANE_KEYS := ["D", "F", "J", "K"]
 const LANE_COLORS := [
@@ -121,6 +124,12 @@ var new_song_offset := "0.000"
 var new_level_field := 0
 var new_level_difficulty := 1
 var delete_action := ""
+var tap_serial_file: FileAccess
+var tap_thread: Thread
+var tap_lock: Mutex
+var tap_running := false
+var tap_connected := false
+var tap_lane_queue: Array = []
 var editor_time := 0.0
 var editor_playing := false
 var editor_subdivision := 1
@@ -180,10 +189,73 @@ func _ready() -> void:
 	_build_hit_sounds()
 	_setup_drum_samples()
 	miss_sound = _create_miss_sound()
+	_start_tap_input()
 	queue_redraw()
 
 
+func _exit_tree() -> void:
+	tap_running = false
+	if tap_thread != null:
+		tap_thread.wait_to_finish()
+		tap_thread = null
+	if tap_serial_file != null:
+		tap_serial_file.close()
+		tap_serial_file = null
+
+
+func _start_tap_input() -> void:
+	var port := TAP_SERIAL_PORT
+	if port == "auto":
+		port = _detect_tap_port()
+	if port.is_empty():
+		return
+	OS.execute("stty", PackedStringArray([
+		"-F", port, str(TAP_SERIAL_BAUD), "raw", "-echo", "min", "0", "time", "1"
+	]))
+	tap_serial_file = FileAccess.open(port, FileAccess.READ)
+	if tap_serial_file == null:
+		return
+	tap_lock = Mutex.new()
+	tap_running = true
+	tap_connected = true
+	tap_thread = Thread.new()
+	tap_thread.start(_tap_reader_loop)
+
+
+func _detect_tap_port() -> String:
+	for candidate in TAP_SERIAL_CANDIDATES:
+		if FileAccess.file_exists(candidate):
+			return candidate
+	return ""
+
+
+func _tap_reader_loop() -> void:
+	while tap_running and tap_serial_file != null:
+		var byte := tap_serial_file.get_8()
+		if byte == 0:
+			OS.delay_msec(20)
+			continue
+		var character := String.chr(byte)
+		if character >= "1" and character <= "4":
+			tap_lock.lock()
+			tap_lane_queue.append(int(character) - 1)
+			tap_lock.unlock()
+
+
+func _flush_tap_queue() -> void:
+	if tap_lock == null or tap_lane_queue.is_empty():
+		return
+	tap_lock.lock()
+	var pending: Array = tap_lane_queue.duplicate()
+	tap_lane_queue.clear()
+	tap_lock.unlock()
+	for lane in pending:
+		if current_screen == Screen.GAME:
+			_press_lane(int(lane))
+
+
 func _process(delta: float) -> void:
+	_flush_tap_queue()
 	if current_screen == Screen.MENU or current_screen == Screen.NAME_ENTRY or current_screen == Screen.SCORES:
 		menu_time += delta
 	elif current_screen == Screen.EDITOR:
@@ -1334,6 +1406,9 @@ func _draw_menu() -> void:
 
 	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "ARRIBA / ABAJO seleccionar    ENTER jugar    E editor    N nuevo    X borrar cancion    C borrar chart    T tabla", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
 	draw_string(fallback_font, Vector2(viewport_size.x - 260.0, viewport_size.y - 46.0), "NIVEL  %02d / %02d" % [selected_level + 1, levels.size()], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#6678aa"))
+	if tap_connected:
+		draw_circle(Vector2(viewport_size.x - 380.0, viewport_size.y - 51.0), 5.0, COLOR_GREEN)
+		draw_string(fallback_font, Vector2(viewport_size.x - 370.0, viewport_size.y - 46.0), "PAD ARDUINO", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_GREEN)
 
 
 func _draw_name_entry() -> void:
