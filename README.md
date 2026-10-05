@@ -72,16 +72,18 @@ destellos laterales. Los fallos producen un golpe grave de error.
 ## Pad fisico con Arduino
 
 El juego puede recibir golpes de un sensor tap/vibracion (KY-031 o SW-420)
-conectado a un Arduino. El sketch esta en `arduino/pulsora_pad/`.
+conectado a un Arduino Uno. El sketch esta en `arduino/pulsora_pad/`.
 
-1. Conecta el modulo: `S` del sensor a `A0`, el pin del medio a `5V` y `-` a
-   `GND`. Encaja bien el conector de 3 pines sobre el modulo.
-2. Abre `arduino/pulsora_pad/pulsora_pad.ino` en el IDE de Arduino y subelo.
-3. Cierra el monitor serie y conecta el Arduino por USB.
-4. Ejecuta el juego: detecta el puerto `/dev/ttyACM*` o `/dev/ttyUSB*` solo.
-5. Cada toque del sensor reemplaza a la tecla `D`. Si usas mas sensores,
-   cambia el canal en el sketch enviando `'2'`, `'3'` o `'4'` para las teclas
-   `F`, `J` y `K`.
+1. Con el USB desconectado, conecta `S` del sensor a `A0`, `+` a `5V` y `-` a
+   `GND`. No conectes el sensor a los pines seriales `0/RX` o `1/TX`.
+2. Sube el sketch desde `arduino/pulsora_pad/pulsora_pad.ino`; usa `Serial`
+   a 9600 baudios y envia `1` seguido de salto de linea por cada golpe.
+3. Cierra el Monitor Serie y ejecuta el juego. Un puente Python incluido lee
+   el puerto `/dev/ttyACM*` o `/dev/ttyUSB*` y envia el golpe a Godot por UDP
+   local. No necesita paquetes Python externos.
+4. El canal `1` activa `D`; los canales `2`, `3` y `4` activan `F`, `J` y `K`.
+   Tambien acepta lineas con lecturas analogicas: detecta golpes por encima de
+   `0.25 V` o `50` cuentas ADC.
 
 Cuando el pad esta conectado, el menu muestra `PAD ARDUINO` en verde. Si no hay
 placa conectada, el juego funciona igual con el teclado.

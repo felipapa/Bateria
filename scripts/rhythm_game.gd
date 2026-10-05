@@ -30,8 +30,8 @@ const CUSTOM_DIFFICULTIES := ["EASY", "NORMAL", "HARD", "EXPERT"]
 const DRUM_SAMPLE_STARTS := [0.451, 0.979, 1.357, 1.740]
 const DRUM_SAMPLE_LENGTHS := [0.43, 0.26, 0.33, 0.34]
 const TAP_SERIAL_PORT := "auto"
-const TAP_SERIAL_BAUD := 9600
 const TAP_SERIAL_CANDIDATES := ["/dev/ttyACM0", "/dev/ttyACM1", "/dev/ttyUSB0", "/dev/ttyUSB1"]
+const TAP_UDP_PORT := 4242
 
 const LANE_KEYS := ["D", "F", "J", "K"]
 const LANE_COLORS := [
@@ -124,12 +124,9 @@ var new_song_offset := "0.000"
 var new_level_field := 0
 var new_level_difficulty := 1
 var delete_action := ""
-var tap_serial_file: FileAccess
-var tap_thread: Thread
-var tap_lock: Mutex
-var tap_running := false
+var tap_udp: PacketPeerUDP
+var tap_bridge_pid := -1
 var tap_connected := false
-var tap_lane_queue: Array = []
 var editor_time := 0.0
 var editor_playing := false
 var editor_subdivision := 1
@@ -194,13 +191,12 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
-	tap_running = false
-	if tap_thread != null:
-		tap_thread.wait_to_finish()
-		tap_thread = null
-	if tap_serial_file != null:
-		tap_serial_file.close()
-		tap_serial_file = null
+	if tap_bridge_pid > 0:
+		OS.kill(tap_bridge_pid)
+		tap_bridge_pid = -1
+	if tap_udp != null:
+		tap_udp.close()
+		tap_udp = null
 
 
 func _start_tap_input() -> void:
@@ -209,17 +205,15 @@ func _start_tap_input() -> void:
 		port = _detect_tap_port()
 	if port.is_empty():
 		return
-	OS.execute("stty", PackedStringArray([
-		"-F", port, str(TAP_SERIAL_BAUD), "raw", "-echo", "min", "0", "time", "1"
-	]))
-	tap_serial_file = FileAccess.open(port, FileAccess.READ)
-	if tap_serial_file == null:
+	tap_udp = PacketPeerUDP.new()
+	if tap_udp.bind(TAP_UDP_PORT, "127.0.0.1") != OK:
+		tap_udp = null
 		return
-	tap_lock = Mutex.new()
-	tap_running = true
-	tap_connected = true
-	tap_thread = Thread.new()
-	tap_thread.start(_tap_reader_loop)
+	var bridge_path := ProjectSettings.globalize_path("res://tools/arduino_pad_bridge.py")
+	tap_bridge_pid = OS.create_process("python3", PackedStringArray([bridge_path, port, str(TAP_UDP_PORT)]))
+	if tap_bridge_pid < 0:
+		tap_udp.close()
+		tap_udp = null
 
 
 func _detect_tap_port() -> String:
@@ -228,34 +222,21 @@ func _detect_tap_port() -> String:
 			return candidate
 	return ""
 
-
-func _tap_reader_loop() -> void:
-	while tap_running and tap_serial_file != null:
-		var byte := tap_serial_file.get_8()
-		if byte == 0:
-			OS.delay_msec(20)
-			continue
-		var character := String.chr(byte)
-		if character >= "1" and character <= "4":
-			tap_lock.lock()
-			tap_lane_queue.append(int(character) - 1)
-			tap_lock.unlock()
-
-
-func _flush_tap_queue() -> void:
-	if tap_lock == null or tap_lane_queue.is_empty():
+func _poll_tap_udp() -> void:
+	if tap_udp == null:
 		return
-	tap_lock.lock()
-	var pending: Array = tap_lane_queue.duplicate()
-	tap_lane_queue.clear()
-	tap_lock.unlock()
-	for lane in pending:
-		if current_screen == Screen.GAME:
-			_press_lane(int(lane))
+	while tap_udp.get_available_packet_count() > 0:
+		var packet := tap_udp.get_packet().get_string_from_ascii().strip_edges()
+		if packet == "R":
+			tap_connected = true
+		elif packet.length() == 1 and packet >= "1" and packet <= "4":
+			tap_connected = true
+			if current_screen == Screen.GAME:
+				_press_lane(int(packet) - 1)
 
 
 func _process(delta: float) -> void:
-	_flush_tap_queue()
+	_poll_tap_udp()
 	if current_screen == Screen.MENU or current_screen == Screen.NAME_ENTRY or current_screen == Screen.SCORES:
 		menu_time += delta
 	elif current_screen == Screen.EDITOR:
