@@ -74,7 +74,8 @@ destellos laterales. Los fallos producen un golpe grave de error.
 El juego puede recibir golpes de un sensor tap/vibracion (KY-031 o SW-420)
 conectado a un Arduino. El sketch esta en `arduino/pulsora_pad/`.
 
-1. Conecta el modulo: `DO` del sensor al pin `2`, `VCC` a `5V` y `GND` a `GND`.
+1. Conecta el modulo: `S` del sensor a `A0`, el pin del medio a `5V` y `-` a
+   `GND`. Encaja bien el conector de 3 pines sobre el modulo.
 2. Abre `arduino/pulsora_pad/pulsora_pad.ino` en el IDE de Arduino y subelo.
 3. Cierra el monitor serie y conecta el Arduino por USB.
 4. Ejecuta el juego: detecta el puerto `/dev/ttyACM*` o `/dev/ttyUSB*` solo.
