@@ -166,6 +166,10 @@ var feedback_timer := 0.0
 var pulse_timer := 0.0
 var hit_effects: Array = []
 var hit_sounds: Array = []
+var streak_announcement_timer := 0.0
+var streak_announcement_combo := 0
+var streak_tier := 0
+var streak_pulse := 0.0
 var drum_sample_stream: AudioStream
 var miss_sound: AudioStreamWAV
 var shake_timer := 0.0
@@ -270,6 +274,8 @@ func _process(delta: float) -> void:
 	for lane in range(LANE_COUNT):
 		lane_flash[lane] = maxf(0.0, lane_flash[lane] - delta)
 	_update_hit_effects(delta)
+	streak_announcement_timer = maxf(0.0, streak_announcement_timer - delta)
+	streak_pulse = maxf(0.0, streak_pulse - delta * 2.4)
 	shake_timer = maxf(0.0, shake_timer - delta)
 	shake_clock += delta
 	side_flash_timer = maxf(0.0, side_flash_timer - delta)
@@ -1044,10 +1050,13 @@ func _press_lane(lane: int) -> void:
 	judged_notes += 1
 	combo += 1
 	max_combo = maxi(max_combo, combo)
+	if combo == 8 or combo == 16 or combo == 32 or combo == 64:
+		_trigger_streak_celebration(combo)
+	var multiplier := _combo_multiplier()
 
 	if best_distance <= PERFECT_WINDOW:
 		perfects += 1
-		score += 300
+		score += int(300.0 * multiplier)
 		life = minf(MAX_LIFE, life + LIFE_RECOVERY[0])
 		_set_feedback("PERFECT", Color("#fff4a3"))
 		_spawn_hit_effect(lane, "PERFECT", Color("#fff4a3"))
@@ -1055,7 +1064,7 @@ func _press_lane(lane: int) -> void:
 		_trigger_hit_response(Color("#fff4a3"), 6.0)
 	elif best_distance <= GREAT_WINDOW:
 		greats += 1
-		score += 200
+		score += int(200.0 * multiplier)
 		life = minf(MAX_LIFE, life + LIFE_RECOVERY[1])
 		_set_feedback("GREAT", Color("#8fffd6"))
 		_spawn_hit_effect(lane, "GREAT", Color("#8fffd6"))
@@ -1063,7 +1072,7 @@ func _press_lane(lane: int) -> void:
 		_trigger_hit_response(Color("#8fffd6"), 4.5)
 	else:
 		goods += 1
-		score += 100
+		score += int(100.0 * multiplier)
 		life = minf(MAX_LIFE, life + LIFE_RECOVERY[2])
 		_set_feedback("GOOD", Color("#a9c7ff"))
 		_spawn_hit_effect(lane, "GOOD", Color("#a9c7ff"))
@@ -1075,6 +1084,8 @@ func _register_miss() -> void:
 	misses += 1
 	judged_notes += 1
 	combo = 0
+	streak_announcement_timer = 0.0
+	streak_pulse = 0.0
 	life = maxf(0.0, life - LIFE_DAMAGE_MISS)
 	_set_feedback("MISS", Color("#ff5e6c"))
 	_trigger_miss_response()
@@ -1088,10 +1099,12 @@ func _set_feedback(text: String, color: Color) -> void:
 
 
 func _trigger_hit_response(color: Color, strength: float) -> void:
-	shake_timer = 0.12
-	shake_strength = strength
-	side_flash_timer = 0.30
+	var tier := _streak_tier_for(combo)
+	shake_timer = 0.12 + minf(0.06, float(tier) * 0.015)
+	shake_strength = strength + float(tier) * 0.7
+	side_flash_timer = 0.30 + float(tier) * 0.05
 	side_flash_color = color
+	streak_pulse = maxf(streak_pulse, 0.35 + float(tier) * 0.12)
 
 
 func _trigger_miss_response() -> void:
@@ -1099,6 +1112,37 @@ func _trigger_miss_response() -> void:
 	shake_strength = 2.0
 	side_flash_timer = 0.14
 	side_flash_color = Color("#ff5e6c")
+	streak_announcement_timer = 0.0
+	streak_pulse = 0.0
+
+
+func _combo_multiplier() -> float:
+	var tier := _streak_tier_for(combo)
+	return [1.0, 1.25, 1.5, 2.0, 2.5][tier]
+
+
+func _streak_tier_for(value: int) -> int:
+	if value >= 64:
+		return 4
+	if value >= 32:
+		return 3
+	if value >= 16:
+		return 2
+	if value >= 8:
+		return 1
+	return 0
+
+
+func _trigger_streak_celebration(value: int) -> void:
+	streak_tier = _streak_tier_for(value)
+	streak_announcement_combo = value
+	streak_announcement_timer = 1.25
+	streak_pulse = 1.0
+	shake_timer = 0.24 if streak_tier < 3 else 0.34
+	shake_strength = 8.0 + float(streak_tier) * 2.5
+	side_flash_timer = 0.55
+	side_flash_color = [COLOR_GREEN, COLOR_YELLOW, COLOR_ORANGE, COLOR_VIOLET, COLOR_WHITE][streak_tier]
+	_play_streak_stinger(streak_tier)
 
 
 func _spawn_hit_effect(lane: int, text: String, color: Color) -> void:
@@ -1106,6 +1150,7 @@ func _spawn_hit_effect(lane: int, text: String, color: Color) -> void:
 		"lane": lane,
 		"text": text,
 		"color": color,
+		"combo": combo,
 		"elapsed": 0.0
 	})
 
@@ -1130,6 +1175,36 @@ func _build_hit_sounds() -> void:
 		_create_drum_hit(145.0, 0.58, 0.090, 0.25),
 		_create_drum_hit(120.0, 0.36, 0.080, 0.21)
 	]
+
+
+func _play_streak_stinger(tier: int) -> void:
+	var sample_rate := 22050
+	var duration := 0.48 + float(tier) * 0.08
+	var sample_count := int(duration * sample_rate)
+	var samples := PackedByteArray()
+	samples.resize(sample_count * 2)
+	var low_frequency: float = [280.0, 330.0, 392.0, 440.0, 523.0][tier]
+	var high_frequency: float = [620.0, 740.0, 880.0, 1046.0, 1318.0][tier]
+	for index in range(sample_count):
+		var time := float(index) / sample_rate
+		var progress := time / duration
+		var frequency := lerpf(low_frequency, high_frequency, progress)
+		var envelope := minf(1.0, progress * 12.0) * pow(1.0 - progress, 1.35)
+		var tone := sin(TAU * frequency * time) * 0.72 + sin(TAU * frequency * 1.5 * time) * 0.28
+		var sample := int(clampf(tone * envelope * 0.48, -1.0, 1.0) * 26000.0)
+		samples[index * 2] = sample & 0xff
+		samples[index * 2 + 1] = (sample >> 8) & 0xff
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = sample_rate
+	stream.stereo = false
+	stream.data = samples
+	var player := AudioStreamPlayer.new()
+	player.stream = stream
+	player.volume_db = -7.0
+	add_child(player)
+	player.finished.connect(player.queue_free)
+	player.play()
 
 
 func _create_drum_hit(frequency: float, brightness: float, duration: float, volume: float) -> AudioStreamWAV:
@@ -1570,13 +1645,18 @@ func _draw_game() -> void:
 		Vector2(field_left, highway_bottom)
 	])
 	draw_colored_polygon(highway, Color("#0B1224"))
+	_draw_streak_aura(viewport_size, field_left, field_width)
+	var current_tier := _streak_tier_for(combo)
+	var streak_color: Color = [COLOR_BLUE, COLOR_GREEN, COLOR_YELLOW, COLOR_ORANGE, COLOR_VIOLET][current_tier]
+	var streak_energy := clampf(float(combo) / 64.0, 0.0, 1.0)
 
 	for row in range(9):
 		var progress := float(row) / 8.0
 		var y := lerpf(SPAWN_Y, highway_bottom, progress)
 		var width_at := lerpf(top_width, field_width, progress)
 		var left_at := field_left + (field_width - width_at) * 0.5
-		draw_line(Vector2(left_at, y), Vector2(left_at + width_at, y), Color(0.23, 0.38, 0.65, 0.42), 1.0)
+		var grid_alpha := 0.32 + streak_energy * 0.22
+		draw_line(Vector2(left_at, y), Vector2(left_at + width_at, y), Color(streak_color, grid_alpha), 1.0 + streak_energy)
 
 	for lane in range(1, LANE_COUNT):
 		var top_x := field_left + (field_width - top_width) * 0.5 + top_width * float(lane) / LANE_COUNT
@@ -1585,8 +1665,8 @@ func _draw_game() -> void:
 
 	var left_top := field_left + (field_width - top_width) * 0.5
 	var right_top := left_top + top_width
-	draw_line(Vector2(left_top, SPAWN_Y), Vector2(field_left, highway_bottom), COLOR_BLUE, 3.0)
-	draw_line(Vector2(right_top, SPAWN_Y), Vector2(field_left + field_width, highway_bottom), COLOR_VIOLET, 3.0)
+	draw_line(Vector2(left_top, SPAWN_Y), Vector2(field_left, highway_bottom), COLOR_BLUE.lerp(streak_color, streak_energy), 3.0 + streak_energy * 2.0)
+	draw_line(Vector2(right_top, SPAWN_Y), Vector2(field_left + field_width, highway_bottom), COLOR_VIOLET.lerp(streak_color, streak_energy), 3.0 + streak_energy * 2.0)
 
 	# Notes use the same perspective interpolation as the highway lines.
 	for note in active_notes:
@@ -1616,6 +1696,9 @@ func _draw_game() -> void:
 			shadow_gem.append(point + Vector2(0.0, 4.0))
 		draw_colored_polygon(shadow_gem, Color(0, 0, 0, 0.40))
 		draw_colored_polygon(gem, LANE_COLORS[lane])
+		if current_tier > 0:
+			for edge in range(gem.size()):
+				draw_line(gem[edge], gem[(edge + 1) % gem.size()], Color(streak_color, 0.36 + streak_energy * 0.54), 1.0 + current_tier * 0.45)
 		draw_line(Vector2(center_x - note_width * 0.28, y - note_height * 0.25), Vector2(center_x + note_width * 0.28, y - note_height * 0.25), Color(1, 1, 1, 0.60), 2.0)
 
 	# Receptors sit at the wide end of the highway.
@@ -1628,12 +1711,16 @@ func _draw_game() -> void:
 	for lane in range(LANE_COUNT):
 		var center_x := field_left + receptor_lane_width * (lane + 0.5)
 		var press_amount: float = lane_flash[lane] / 0.14
-		var radius := minf(29.0, receptor_lane_width * 0.30) + press_amount * 8.0
+		var radius := minf(29.0, receptor_lane_width * 0.30) + press_amount * (8.0 + current_tier * 2.0)
 		var receptor_color: Color = LANE_COLORS[lane]
 		if lane_flash[lane] <= 0.0:
-			receptor_color = Color(receptor_color, 0.38)
+			receptor_color = Color(receptor_color, 0.38 + streak_energy * 0.22)
+		draw_circle(Vector2(center_x, JUDGEMENT_Y), radius + 12.0 + streak_energy * 10.0, Color(receptor_color, 0.05 + streak_energy * 0.10 + press_amount * 0.10))
 		draw_circle(Vector2(center_x, JUDGEMENT_Y), radius, Color(0.03, 0.07, 0.16, 0.95))
 		draw_arc(Vector2(center_x, JUDGEMENT_Y), radius, 0.0, TAU, 28, receptor_color, 4.0)
+		if current_tier > 0:
+			var arc_start := fmod(shake_clock * (0.7 + current_tier * 0.22) + lane * 1.2, TAU)
+			draw_arc(Vector2(center_x, JUDGEMENT_Y), radius + 7.0, arc_start, arc_start + PI * 0.65, 18, Color(streak_color, 0.52 + streak_energy * 0.35), 2.0)
 		draw_circle(Vector2(center_x, JUDGEMENT_Y), radius * 0.30, receptor_color)
 		draw_string(fallback_font, Vector2(center_x - receptor_lane_width * 0.5, JUDGEMENT_Y + 56.0), LANE_KEYS[lane], HORIZONTAL_ALIGNMENT_CENTER, receptor_lane_width, 17, COLOR_WHITE)
 	_draw_hit_effects(field_left, field_width)
@@ -1654,6 +1741,48 @@ func _draw_game() -> void:
 
 	if level_finished:
 		_draw_results(field_left, field_width)
+	elif streak_announcement_timer > 0.0 and not is_paused:
+		_draw_streak_announcement(viewport_size)
+
+
+func _draw_streak_aura(viewport_size: Vector2, field_left: float, field_width: float) -> void:
+	if combo < 4 and streak_pulse <= 0.0:
+		return
+	var tier := _streak_tier_for(combo)
+	var energy := maxf(clampf(float(combo) / 64.0, 0.0, 1.0), streak_pulse * 0.65)
+	var color: Color = [COLOR_BLUE, COLOR_GREEN, COLOR_YELLOW, COLOR_ORANGE, COLOR_VIOLET][tier]
+	var orbit_time := shake_clock * (0.12 + energy * 0.10)
+	for side in range(2):
+		var x := field_left - 30.0 if side == 0 else field_left + field_width + 30.0
+		var center := Vector2(x, viewport_size.y * 0.56)
+		for ring in range(3):
+			var radius := 25.0 + ring * 14.0 + sin(orbit_time + ring) * (2.0 + streak_pulse * 4.0)
+			draw_arc(center, radius, orbit_time + ring * 1.7, orbit_time + ring * 1.7 + PI * 1.45, 28, Color(color, 0.16 + energy * 0.30), 1.5 + energy * 2.0)
+		for mote in range(4):
+			var angle := orbit_time * (1.0 if mote % 2 == 0 else -1.0) + float(mote) * TAU / 4.0
+			var point := center + Vector2.from_angle(angle) * (58.0 + 5.0 * sin(orbit_time * 2.0 + mote))
+			draw_circle(point, 2.0 + energy * 2.5, Color(color, 0.35 + energy * 0.55))
+
+
+func _draw_streak_announcement(viewport_size: Vector2) -> void:
+	var alpha := minf(1.0, streak_announcement_timer / 0.20)
+	var tier_titles := ["", "LA LLAMA DESPIERTA", "RITUAL ENCADENADO", "MAMBO MISTICO", "LEYENDA VIVA"]
+	var tier_colors: Array = [COLOR_GREEN, COLOR_GREEN, COLOR_YELLOW, COLOR_ORANGE, COLOR_VIOLET]
+	var color: Color = tier_colors[streak_tier]
+	var panel_width := minf(650.0, viewport_size.x - 64.0)
+	var panel := Rect2((viewport_size.x - panel_width) * 0.5, viewport_size.y * 0.37, panel_width, 104.0)
+	draw_rect(panel, Color(COLOR_BACKGROUND, 0.86 * alpha))
+	draw_rect(panel, Color(color, 0.72 * alpha), false, 2.0)
+	draw_line(panel.position + Vector2(22.0, 8.0), Vector2(panel.end.x - 22.0, panel.position.y + 8.0), Color(COLOR_YELLOW, alpha * 0.8), 2.0)
+	draw_line(Vector2(panel.position.x + 22.0, panel.end.y - 8.0), panel.end - Vector2(22.0, 8.0), Color(COLOR_VIOLET, alpha * 0.8), 2.0)
+	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 43.0), "RACHA  x%d" % streak_announcement_combo, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 18, Color(COLOR_YELLOW, alpha))
+	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 78.0), tier_titles[streak_tier], HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 30, Color(color, alpha))
+	var flare := 0.3 + streak_pulse * 0.7
+	for side in range(2):
+		var x := panel.position.x + 30.0 if side == 0 else panel.end.x - 30.0
+		var y := panel.position.y + panel.size.y * 0.5
+		draw_circle(Vector2(x, y), 4.0 + flare * 5.0, Color(color, alpha * 0.28))
+		draw_arc(Vector2(x, y), 12.0 + flare * 8.0, shake_clock, shake_clock + TAU * 0.75, 20, Color(color, alpha), 2.0)
 
 
 func _draw_hit_effects(field_left: float, field_width: float) -> void:
@@ -1662,16 +1791,24 @@ func _draw_hit_effects(field_left: float, field_width: float) -> void:
 		var progress: float = float(effect.elapsed) / HIT_EFFECT_DURATION
 		var alpha := 1.0 - progress
 		var lane := int(effect.lane)
+		var tier := _streak_tier_for(int(effect.get("combo", 0)))
 		var center := Vector2(field_left + lane_width * (lane + 0.5), JUDGEMENT_Y)
-		var radius := 28.0 + progress * 82.0
+		var radius := 28.0 + progress * (82.0 + tier * 14.0)
 		var color: Color = effect.color
-		draw_arc(center, radius, 0.0, TAU, 32, Color(color, alpha), 4.0 - progress * 2.0)
+		if tier > 0:
+			color = color.lerp([COLOR_GREEN, COLOR_YELLOW, COLOR_ORANGE, COLOR_VIOLET][mini(tier - 1, 3)], 0.25 + float(tier) * 0.10)
+		draw_arc(center, radius, 0.0, TAU, 36, Color(color, alpha), 4.0 - progress * 2.0 + tier * 0.4)
+		if tier >= 2:
+			draw_arc(center, radius * 0.72, -progress * TAU, -progress * TAU + PI * 1.3, 32, Color(color, alpha * 0.78), 2.0)
 		draw_circle(center, 8.0 + (1.0 - progress) * 12.0, Color(color, alpha * 0.28))
-		for ray in range(8):
-			var angle := TAU * float(ray) / 8.0
+		var ray_count := 8 + tier * 4
+		for ray in range(ray_count):
+			var angle := TAU * float(ray) / float(ray_count) + progress * 0.18
 			var ray_start := center + Vector2.from_angle(angle) * (radius * 0.72)
-			var ray_end := center + Vector2.from_angle(angle) * (radius + 13.0)
-			draw_line(ray_start, ray_end, Color(color, alpha * 0.72), 2.0)
+			var ray_end := center + Vector2.from_angle(angle) * (radius + 13.0 + tier * 4.0)
+			draw_line(ray_start, ray_end, Color(color, alpha * 0.72), 2.0 + tier * 0.35)
+			if tier >= 2 and ray % 2 == 0:
+				draw_circle(ray_end, 1.5 + alpha * 1.5, Color(COLOR_WHITE, alpha * 0.85))
 		var text_y := JUDGEMENT_Y - 48.0 - progress * 32.0
 		var text_size := 14 + int((1.0 - progress) * 5.0)
 		draw_string(fallback_font, Vector2(center.x - lane_width * 0.5, text_y), str(effect.text), HORIZONTAL_ALIGNMENT_CENTER, lane_width, text_size, Color(color, alpha))
@@ -1703,6 +1840,15 @@ func _draw_animated_background(viewport_size: Vector2, animation_time: float) ->
 	var center := Vector2(viewport_size.x * 0.72, viewport_size.y * 0.28)
 	draw_circle(center, 210.0 + pulse * 18.0, Color(COLOR_VIOLET, 0.035))
 	draw_circle(center, 125.0 + pulse * 10.0, Color(COLOR_BLUE, 0.045))
+	for ring in range(3):
+		var radius := 74.0 + ring * 27.0 + pulse * (3.0 + ring)
+		var rotation := animation_time * (0.06 if ring % 2 == 0 else -0.045)
+		draw_arc(center, radius, rotation, rotation + PI * (1.48 if ring % 2 == 0 else 1.22), 48, Color(COLOR_YELLOW if ring == 1 else COLOR_VIOLET, 0.09 + pulse * 0.025), 1.0 + ring * 0.35)
+	for mark in range(12):
+		var angle := TAU * float(mark) / 12.0 + animation_time * 0.035
+		var inner := center + Vector2.from_angle(angle) * 78.0
+		var outer := center + Vector2.from_angle(angle) * 89.0
+		draw_line(inner, outer, Color(COLOR_ORANGE, 0.14), 1.0)
 	for x in range(0, int(viewport_size.x) + 1, 48):
 		draw_line(Vector2(x, 100.0), Vector2(x, viewport_size.y), Color(0.20, 0.32, 0.52, 0.10), 1.0)
 	for y in range(116, int(viewport_size.y), 48):
@@ -1720,8 +1866,16 @@ func _draw_header(viewport_size: Vector2) -> void:
 	var game_level: Dictionary = levels[selected_level]
 	draw_string(fallback_font, Vector2(36.0, 62.0), str(game_level.title) + "  /  " + str(game_level.bpm_label), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_LIGHT)
 	var accuracy := _accuracy_percent()
+	var streak_colors: Array = [COLOR_LIGHT, COLOR_GREEN, COLOR_YELLOW, COLOR_ORANGE, COLOR_VIOLET]
+	var current_tier := _streak_tier_for(combo)
 	draw_string(fallback_font, Vector2(viewport_size.x - 265.0, 36.0), "SCORE %07d" % score, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, COLOR_WHITE)
-	draw_string(fallback_font, Vector2(viewport_size.x - 265.0, 59.0), "%d COMBO    %.1f%%" % [combo, accuracy], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, COLOR_LIGHT)
+	draw_string(fallback_font, Vector2(viewport_size.x - 265.0, 59.0), "%d COMBO  x%.2f  %.1f%%" % [combo, _combo_multiplier(), accuracy], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, streak_colors[current_tier])
+	var meter := Rect2(viewport_size.x * 0.5 - 108.0, 92.0, 216.0, 5.0)
+	draw_rect(meter, Color(COLOR_PANEL, 0.9))
+	draw_rect(Rect2(meter.position, Vector2(meter.size.x * clampf(float(combo) / 64.0, 0.0, 1.0), meter.size.y)), streak_colors[current_tier])
+	for milestone in [8, 16, 32, 64]:
+		var tick_x := meter.position.x + meter.size.x * float(milestone) / 64.0
+		draw_line(Vector2(tick_x, meter.position.y - 3.0), Vector2(tick_x, meter.end.y + 3.0), COLOR_WHITE, 1.0)
 	draw_string(fallback_font, Vector2(viewport_size.x - 265.0, 80.0), "VIDA %03d" % int(life), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 11, COLOR_GREEN)
 	draw_rect(Rect2(viewport_size.x - 215.0, 70.0, 180.0, 12.0), Color("#0B1224"))
 	var life_color := COLOR_GREEN if life > 35.0 else COLOR_RED
