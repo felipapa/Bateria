@@ -1,99 +1,79 @@
-import glob
-import os
-import select
+"""Forward four Arduino drum-pad serial events to Godot over localhost UDP."""
+
 import socket
 import sys
-import termios
 import time
 
 
-def find_port():
-    for pattern in ("/dev/ttyACM*", "/dev/ttyUSB*"):
-        ports = sorted(glob.glob(pattern))
-        if ports:
-            return ports[0]
-    return ""
+UDP_HOST = "127.0.0.1"
+DEFAULT_UDP_PORT = 4242
+BAUD_RATE = 9600
+HEARTBEAT_SECONDS = 1.0
 
 
-def configure_serial(fd, baud):
-    settings = termios.tcgetattr(fd)
-    settings[0] = 0
-    settings[1] = 0
-    settings[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
-    settings[3] = 0
-    settings[4] = baud
-    settings[5] = baud
-    settings[6][termios.VMIN] = 0
-    settings[6][termios.VTIME] = 1
-    termios.tcsetattr(fd, termios.TCSANOW, settings)
+def choose_port(requested_port, list_ports):
+    if requested_port and requested_port.lower() != "auto":
+        return requested_port
+    available = sorted(port.device for port in list_ports())
+    return available[0] if available else ""
+
+
+def lane_from_line(line):
+    token = line.strip()
+    if token in ("1", "2", "3", "4"):
+        return int(token) - 1
+    return None
 
 
 def main():
-    port = sys.argv[1] if len(sys.argv) > 1 else "auto"
-    if port == "auto":
-        port = find_port()
-    if not port:
+    try:
+        import serial
+        from serial.tools import list_ports
+    except ImportError:
+        print("Falta pyserial. Instala con: py -m pip install -r requirements.txt", file=sys.stderr)
         return 1
 
-    fd = os.open(port, os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
-    configure_serial(fd, termios.B9600)
-    udp_port = int(sys.argv[2]) if len(sys.argv) > 2 else 4242
-    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    target = ("127.0.0.1", udp_port)
-    udp.sendto(b"R", target)
-    time.sleep(1.5)
-
-    buffer = bytearray()
-    armed = True
-    last_tap = 0.0
-    last_heartbeat = time.monotonic()
+    requested_port = sys.argv[1] if len(sys.argv) > 1 else "auto"
+    udp_port = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_UDP_PORT
+    target = (UDP_HOST, udp_port)
 
     try:
-        while True:
-            readable, _, _ = select.select([fd], [], [], 0.05)
-            if readable:
-                try:
-                    data = os.read(fd, 256)
-                except BlockingIOError:
-                    data = b""
-                for byte in data:
-                    if byte in (10, 13):
-                        if buffer:
-                            token = buffer.decode("ascii", "ignore").strip()
-                            buffer.clear()
-                            now = time.monotonic()
-                            if token in ("1", "2", "3", "4"):
-                                if now - last_tap >= 0.12:
-                                    udp.sendto(token.encode("ascii"), target)
-                                    last_tap = now
-                                armed = True
-                                continue
-                            try:
-                                value = float(token)
-                            except ValueError:
-                                continue
-                            threshold = 0.25 if abs(value) <= 5.0 else 50.0
-                            if value > threshold:
-                                if armed and now - last_tap >= 0.12:
-                                    udp.sendto(b"1", target)
-                                    last_tap = now
-                                armed = False
-                            else:
-                                armed = True
-                    elif len(buffer) < 32:
-                        buffer.append(byte)
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp:
+            while True:
+                port = choose_port(requested_port, list_ports.comports)
+                if not port:
+                    time.sleep(1.0)
+                    continue
 
-            now = time.monotonic()
-            if now - last_heartbeat >= 1.0:
-                udp.sendto(b"R", target)
-                last_heartbeat = now
-    finally:
-        os.close(fd)
-        udp.close()
+                try:
+                    with serial.Serial(port, BAUD_RATE, timeout=0.05) as device:
+                        print(f"Arduino {port} -> Godot UDP {UDP_HOST}:{udp_port}")
+                        # Opening a serial connection can reset many Arduino boards.
+                        time.sleep(1.5)
+                        device.reset_input_buffer()
+                        last_heartbeat = 0.0
+
+                        while True:
+                            raw_line = device.readline()
+                            now = time.monotonic()
+                            if raw_line:
+                                lane = lane_from_line(raw_line.decode("ascii", errors="ignore"))
+                                if lane is not None:
+                                    udp.sendto(str(lane + 1).encode("ascii"), target)
+                            if now - last_heartbeat >= HEARTBEAT_SECONDS:
+                                connected_ports = {device.device for device in list_ports.comports()}
+                                if port not in connected_ports:
+                                    raise serial.SerialException("el puerto serial desaparecio")
+                                udp.sendto(b"R", target)
+                                last_heartbeat = now
+                except KeyboardInterrupt:
+                    return 0
+                except (OSError, serial.SerialException) as error:
+                    print(f"Arduino {port} desconectado; buscando de nuevo: {error}", file=sys.stderr)
+                    time.sleep(1.0)
+    except KeyboardInterrupt:
+        return 0
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    except (OSError, termios.error):
-        raise SystemExit(1)
+    raise SystemExit(main())

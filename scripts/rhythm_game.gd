@@ -9,6 +9,7 @@ const LANE_COUNT := 4
 const THIS_LOVE_PATH := "res://YTDown.com_YouTube_Maroon-5-This-Love_Media_XPpTgCho5ZA_009_128k.mp3"
 const FAR_KID_PATH := "res://YTDown.com_YouTube_You-re-Gonna-Go-Far-Kid_Media_pmZKkb_UAg_009_128k.mp3"
 const HERO_PATH := "res://YTDown.com_YouTube_Skillet-Hero-Official-Video_Media_y9x2CHQClTU_009_128k.mp3"
+const PAD_TEST_CHART_PATH := "res://levels/pad_test_chart.json"
 const DRUM_SAMPLES_PATH := "res://YTDown.com_YouTube_Free-Acoustic-Drum-Pack-50-samples_Media_3UPfwIIxeZ0_009_128k.mp3"
 const TRAVEL_TIME := 1.65
 const SPAWN_Y := 118.0
@@ -30,7 +31,6 @@ const CUSTOM_DIFFICULTIES := ["EASY", "NORMAL", "HARD", "EXPERT"]
 const DRUM_SAMPLE_STARTS := [0.451, 0.979, 1.357, 1.740]
 const DRUM_SAMPLE_LENGTHS := [0.43, 0.26, 0.33, 0.34]
 const TAP_SERIAL_PORT := "auto"
-const TAP_SERIAL_CANDIDATES := ["/dev/ttyACM0", "/dev/ttyACM1", "/dev/ttyUSB0", "/dev/ttyUSB1"]
 const TAP_UDP_PORT := 4242
 
 const LANE_KEYS := ["D", "F", "J", "K"]
@@ -127,6 +127,7 @@ var delete_action := ""
 var tap_udp: PacketPeerUDP
 var tap_bridge_pid := -1
 var tap_connected := false
+var tap_last_seen := -10.0
 var editor_time := 0.0
 var editor_playing := false
 var editor_subdivision := 1
@@ -183,6 +184,7 @@ var fallback_font: Font
 func _ready() -> void:
 	fallback_font = ThemeDB.fallback_font
 	_load_custom_levels()
+	_add_pad_test_level()
 	_load_scores()
 	_select_level_data()
 	_setup_song()
@@ -214,23 +216,30 @@ func _start_tap_input() -> void:
 		tap_udp = null
 		return
 	var bridge_path := ProjectSettings.globalize_path("res://tools/arduino_pad_bridge.py")
-	tap_bridge_pid = OS.create_process("python3", PackedStringArray([bridge_path, port, str(TAP_UDP_PORT)]))
+	var python_command := "python3"
+	var python_args := PackedStringArray()
+	if OS.get_name() == "Windows":
+		python_command = "py"
+		python_args.append("-3")
+	python_args.append(bridge_path)
+	python_args.append(port)
+	python_args.append(str(TAP_UDP_PORT))
+	tap_bridge_pid = OS.create_process(python_command, python_args)
 	if tap_bridge_pid < 0:
 		tap_udp.close()
 		tap_udp = null
 
 
 func _detect_tap_port() -> String:
-	for candidate in TAP_SERIAL_CANDIDATES:
-		if FileAccess.file_exists(candidate):
-			return candidate
-	return ""
+	# pyserial discovers COM, ttyACM and ttyUSB ports across supported OSes.
+	return "auto"
 
 func _poll_tap_udp() -> void:
 	if tap_udp == null:
 		return
 	while tap_udp.get_available_packet_count() > 0:
 		var packet := tap_udp.get_packet().get_string_from_ascii().strip_edges()
+		tap_last_seen = Time.get_ticks_msec() / 1000.0
 		if packet == "R":
 			tap_connected = true
 		elif packet.length() == 1 and packet >= "1" and packet <= "4":
@@ -241,6 +250,8 @@ func _poll_tap_udp() -> void:
 
 func _process(delta: float) -> void:
 	_poll_tap_udp()
+	if tap_connected and Time.get_ticks_msec() / 1000.0 - tap_last_seen > 2.5:
+		tap_connected = false
 	if current_screen == Screen.MENU or current_screen == Screen.NAME_ENTRY or current_screen == Screen.SCORES:
 		menu_time += delta
 	elif current_screen == Screen.EDITOR:
@@ -262,13 +273,13 @@ func _process(delta: float) -> void:
 					song_time = maxf(song_time, song_length)
 			else:
 				song_time += delta
-			if song_time >= 0.0:
+			if song_time >= 0.0 and not _is_pad_test_level():
 				life = maxf(0.0, life - delta * LIFE_DRAIN_PER_SECOND)
 			_update_song(delta)
 			if not level_finished:
 				_spawn_notes()
 				_update_misses()
-			if life <= 0.0 and not level_finished:
+			if life <= 0.0 and not level_finished and not _is_pad_test_level():
 				_finish_level(false)
 
 	for lane in range(LANE_COUNT):
@@ -348,7 +359,7 @@ func _handle_menu_key(keycode: int) -> void:
 
 
 func _open_delete_confirmation(action: String) -> void:
-	if action == "song" and selected_level < BUILTIN_LEVEL_COUNT:
+	if action == "song" and (selected_level < BUILTIN_LEVEL_COUNT or _is_pad_test_level()):
 		return
 	delete_action = action
 	current_screen = Screen.DELETE_CONFIRM
@@ -376,7 +387,7 @@ func _handle_delete_confirm_input(event: InputEvent) -> void:
 
 
 func _delete_selected_song() -> void:
-	if selected_level < BUILTIN_LEVEL_COUNT or selected_level >= levels.size():
+	if selected_level < BUILTIN_LEVEL_COUNT or selected_level >= levels.size() or _is_pad_test_level():
 		return
 	var level: Dictionary = levels[selected_level]
 	var song_path := str(level.song_path)
@@ -741,6 +752,8 @@ func _sort_chart_notes(first: Dictionary, second: Dictionary) -> bool:
 
 
 func _apply_hard_mode_accents() -> void:
+	if _is_pad_test_level():
+		return
 	var rank := int(levels[selected_level].rank)
 	if chart.is_empty():
 		return
@@ -773,7 +786,10 @@ func _update_song(delta: float) -> void:
 		if beat_position < delta * 1.5:
 			pulse_timer = 0.12
 
-	if song_time >= song_length - 0.05 and chart_cursor >= chart.size():
+	var finish_time := song_length - 0.05
+	if _is_pad_test_level():
+		finish_time = chart_end + 1.0
+	if song_time >= finish_time and chart_cursor >= chart.size():
 		_finish_level(true)
 
 
@@ -786,7 +802,8 @@ func _finish_level(won: bool) -> void:
 		song_player.stop()
 		song_player.stream_paused = false
 	audio_started = false
-	_record_score()
+	if not _is_pad_test_level():
+		_record_score()
 
 
 func _record_score() -> void:
@@ -871,6 +888,29 @@ func _load_custom_levels() -> void:
 		var level: Dictionary = entry.duplicate(true)
 		levels.append(level)
 		custom_levels.append(level)
+
+
+func _add_pad_test_level() -> void:
+	levels.append({
+		"title": "PAD TEST",
+		"subtitle": "Prueba de dos sensores",
+		"difficulty": "TEST",
+		"rank": 0,
+		"bpm": 95.10,
+		"bpm_label": "95.10 BPM",
+		"length": "00:11",
+		"notes": "16 golpes alternados / D y F",
+		"song_path": THIS_LOVE_PATH,
+		"duration": 205.311,
+		"offset": 0.5050,
+		"chart_path": PAD_TEST_CHART_PATH,
+		"is_pad_test": true,
+		"test_chart_end": 10.5
+	})
+
+
+func _is_pad_test_level() -> bool:
+	return selected_level >= 0 and selected_level < levels.size() and bool(levels[selected_level].get("is_pad_test", false))
 
 
 func _save_custom_levels() -> void:
@@ -1037,7 +1077,8 @@ func _press_lane(lane: int) -> void:
 	lane_flash[lane] = 0.14
 	if best_index == -1:
 		combo = 0
-		life = maxf(0.0, life - LIFE_DAMAGE_BAD)
+		if not _is_pad_test_level():
+			life = maxf(0.0, life - LIFE_DAMAGE_BAD)
 		_set_feedback("BAD", Color("#ff5e6c"))
 		_spawn_hit_effect(lane, "BAD", Color("#ff5e6c"))
 		_trigger_miss_response()
@@ -1086,7 +1127,8 @@ func _register_miss() -> void:
 	combo = 0
 	streak_announcement_timer = 0.0
 	streak_pulse = 0.0
-	life = maxf(0.0, life - LIFE_DAMAGE_MISS)
+	if not _is_pad_test_level():
+		life = maxf(0.0, life - LIFE_DAMAGE_MISS)
 	_set_feedback("MISS", Color("#ff5e6c"))
 	_trigger_miss_response()
 	_play_miss_sound()
@@ -1377,6 +1419,8 @@ func _build_song_chart() -> void:
 	chart_end = song_length
 	if _load_chart_file():
 		editor_message = "Chart guardado cargado"
+	if _is_pad_test_level():
+		chart_end = float(levels[selected_level].test_chart_end)
 	_apply_hard_mode_accents()
 
 

@@ -1,30 +1,43 @@
-// Pulsora - pad fisico para el juego de bateria
-// Sensor tap / vibracion (KY-031 o SW-420)
-// Cableado: S del sensor -> A0, del medio -> 5V, - -> GND
-// Envia el canal del pad por serial a 9600 baudios.
-// Canal 1 = tecla D, canal 2 = F, canal 3 = J, canal 4 = K
-// Al detectar un golpe parpadea el LED L de la placa.
+// Pulsora - cuatro pads digitales KY-031 / SW-420.
+// Conecta cada salida S a A0-A3; comparte 5V y GND entre los sensores.
+// Envia los canales 1-4 por Serial a 9600 baudios para los carriles D/F/J/K.
+// A0 y A1 salen intercambiados para corregir el cableado actual: A0 -> F, A1 -> D.
 
-const int SENSOR_PIN = A0;
-const unsigned long COOLDOWN_MS = 150;
-int idle_state = LOW;
+const int PAD_COUNT = 4;
+const int PAD_PINS[PAD_COUNT] = {A0, A1, A2, A3};
+const int SERIAL_CHANNELS[PAD_COUNT] = {2, 1, 3, 4};
+const unsigned long REARM_IDLE_MS = 35;
+int idle_state[PAD_COUNT];
+bool armed[PAD_COUNT] = {true, true, true, true};
+unsigned long last_active[PAD_COUNT] = {0, 0, 0, 0};
 
 void setup() {
-  pinMode(SENSOR_PIN, INPUT);
-  pinMode(LED_BUILTIN, OUTPUT);
-  Serial.begin(9600);
-  delay(100);
-  idle_state = digitalRead(SENSOR_PIN);
+	pinMode(LED_BUILTIN, OUTPUT);
+	for (int pad = 0; pad < PAD_COUNT; pad++) {
+		pinMode(PAD_PINS[pad], INPUT_PULLUP);
+	}
+	Serial.begin(9600);
+	delay(100);
+	for (int pad = 0; pad < PAD_COUNT; pad++) {
+		idle_state[pad] = digitalRead(PAD_PINS[pad]);
+	}
 }
 
 void loop() {
-  static unsigned long last_tap = 0;
-  int state = digitalRead(SENSOR_PIN);
-  if (state != idle_state && millis() - last_tap > COOLDOWN_MS) {
-    last_tap = millis();
-    Serial.println('1');
-    digitalWrite(LED_BUILTIN, HIGH);
-    delay(60);
-    digitalWrite(LED_BUILTIN, LOW);
-  }
+	unsigned long now = millis();
+	bool any_hit = false;
+	for (int pad = 0; pad < PAD_COUNT; pad++) {
+		int state = digitalRead(PAD_PINS[pad]);
+		if (state != idle_state[pad]) {
+			last_active[pad] = now;
+			if (armed[pad]) {
+				armed[pad] = false;
+				Serial.println(SERIAL_CHANNELS[pad]);
+				any_hit = true;
+			}
+		} else if (now - last_active[pad] >= REARM_IDLE_MS) {
+			armed[pad] = true;
+		}
+	}
+	digitalWrite(LED_BUILTIN, any_hit ? HIGH : LOW);
 }

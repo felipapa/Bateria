@@ -71,22 +71,45 @@ destellos laterales. Los fallos producen un golpe grave de error.
 
 ## Pad fisico con Arduino
 
-El juego puede recibir golpes de un sensor tap/vibracion (KY-031 o SW-420)
-conectado a un Arduino Uno. El sketch esta en `arduino/pulsora_pad/`.
+El sketch `arduino/pulsora_pad/pulsora_pad.ino` admite cuatro modulos digitales
+SW-420 en un Arduino Uno. Con el USB desconectado, conecta sus salidas `DO` a
+`A0`, `A1`, `A2` y `A3`, y comparte `5V` y `GND` entre todos. No uses los pines
+seriales `0/RX` ni `1/TX` para los sensores.
 
-1. Con el USB desconectado, conecta `S` del sensor a `A0`, `+` a `5V` y `-` a
-   `GND`. No conectes el sensor a los pines seriales `0/RX` o `1/TX`.
-2. Sube el sketch desde `arduino/pulsora_pad/pulsora_pad.ino`; usa `Serial`
-   a 9600 baudios y envia `1` seguido de salto de linea por cada golpe.
-3. Cierra el Monitor Serie y ejecuta el juego. Un puente Python incluido lee
-   el puerto `/dev/ttyACM*` o `/dev/ttyUSB*` y envia el golpe a Godot por UDP
-   local. No necesita paquetes Python externos.
-4. El canal `1` activa `D`; los canales `2`, `3` y `4` activan `F`, `J` y `K`.
-   Tambien acepta lineas con lecturas analogicas: detecta golpes por encima de
-   `0.25 V` o `50` cuentas ADC.
+Sube el sketch a la placa y cierra el Monitor Serie. El puente del juego usa
+`pyserial` para detectar el puerto automaticamente en Windows, macOS o Linux y
+reintenta si la placa se desconecta.
 
-Cuando el pad esta conectado, el menu muestra `PAD ARDUINO` en verde. Si no hay
-placa conectada, el juego funciona igual con el teclado.
+En Windows instala la dependencia con:
+
+```text
+py -m pip install -r requirements.txt
+```
+
+En Ubuntu o Linux Mint, instala Python y pyserial con
+`sudo apt install python3 python3-serial`; para permisos del puerto USB mira
+`LINUX_SETUP.md`.
+
+El Arduino envia los canales `1` a `4` a 9600 baudios y Python los reenvia a
+Godot por UDP local. Corresponden a `D`, `F`, `J` y `K`. En el cableado actual,
+`A0` y `A1` estan intercambiados en el sketch para que coincidan con los dos
+pads instalados. El firmware espera una liberacion estable entre golpes para
+filtrar rebotes breves, pero ya no impone un intervalo fijo entre golpes. Si
+hay varios puertos seriales conectados, ajusta `TAP_SERIAL_PORT` en
+`scripts/rhythm_game.gd` (por ejemplo, `COM3` en Windows). Cierra tambien
+cualquier Monitor Serie antes de abrir el juego, porque solo un programa puede
+usar el puerto a la vez.
+
+Estos modulos digitales detectan golpes, pero no miden bien la fuerza. Para
+velocidad/intensidad variable conviene usar piezos con un circuito de proteccion
+y una lectura analogica calibrada. Mientras tanto, el juego sigue funcionando
+con teclado aunque no haya Arduino conectado.
+
+Para probar la conexion sin sensores, carga temporalmente
+`arduino/serial_test/serial_test.ino`. La placa enviara los carriles 1-4 en
+secuencia. Cierra el Monitor Serie y ejecuta el juego; al conectar el puente,
+los receptores parpadearan siguiendo esos eventos. Luego vuelve a cargar el
+sketch `arduino/pulsora_pad/pulsora_pad.ino` cuando tengas los sensores.
 
 ## Cancion actual
 
@@ -95,3 +118,7 @@ El proyecto incluye tres canciones en `.mp3`: `This Love` de Maroon 5
 Skillet (Expert). Cada una tiene BPM, offset y densidad de notas propios. El
 pack de samples de bateria se usa en los cuatro carriles, con volumen bajo para
 no tapar la cancion. Si el pack no carga, queda un sonido sintetico de respaldo.
+
+El nivel `PAD TEST` es una prueba corta para los dos primeros sensores. Solo
+usa `A0/A1` del Arduino (por el cableado actual, `A0` activa `F` y `A1` activa
+`D`) y no drena vida ni guarda puntuaciones.
