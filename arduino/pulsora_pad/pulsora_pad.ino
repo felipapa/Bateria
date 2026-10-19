@@ -1,12 +1,12 @@
 // Pulsora - cuatro pads digitales KY-031 / SW-420.
 // Conecta cada salida S a A0-A3; comparte 5V y GND entre los sensores.
 // Envia los canales 1-4 por Serial a 9600 baudios para los carriles D/F/J/K.
-// A0 y A1 salen intercambiados para corregir el cableado actual: A0 -> F, A1 -> D.
+// Mapeo del cableado actual: A3 -> D, A2 -> F, A1 -> J, A0 -> K.
 
 const int PAD_COUNT = 4;
-const int PAD_PINS[PAD_COUNT] = {A0, A1, A2, A3};
-const int SERIAL_CHANNELS[PAD_COUNT] = {2, 1, 3, 4};
-const unsigned long REARM_IDLE_MS = 35;
+const int PAD_PINS[PAD_COUNT] = {A3, A2, A1, A0};
+const int SERIAL_CHANNELS[PAD_COUNT] = {1, 2, 3, 4};
+const unsigned long REARM_IDLE_MS = 80;
 int idle_state[PAD_COUNT];
 bool armed[PAD_COUNT] = {true, true, true, true};
 unsigned long last_active[PAD_COUNT] = {0, 0, 0, 0};

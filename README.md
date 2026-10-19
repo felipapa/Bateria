@@ -91,10 +91,9 @@ En Ubuntu o Linux Mint, instala Python y pyserial con
 `LINUX_SETUP.md`.
 
 El Arduino envia los canales `1` a `4` a 9600 baudios y Python los reenvia a
-Godot por UDP local. Corresponden a `D`, `F`, `J` y `K`. En el cableado actual,
-`A0` y `A1` estan intercambiados en el sketch para que coincidan con los dos
-pads instalados. El firmware espera una liberacion estable entre golpes para
-filtrar rebotes breves, pero ya no impone un intervalo fijo entre golpes. Si
+Godot por UDP local. El mapeo actual es `A3 -> D`, `A2 -> F`, `A1 -> J` y
+`A0 -> K`. El firmware espera 80 ms de reposo estable entre vibraciones
+para filtrar rebotes, pero no impone un intervalo fijo entre golpes. Si
 hay varios puertos seriales conectados, ajusta `TAP_SERIAL_PORT` en
 `scripts/rhythm_game.gd` (por ejemplo, `COM3` en Windows). Cierra tambien
 cualquier Monitor Serie antes de abrir el juego, porque solo un programa puede
@@ -121,4 +120,4 @@ no tapar la cancion. Si el pack no carga, queda un sonido sintetico de respaldo.
 
 El nivel `PAD TEST` es una prueba corta de los cuatro sensores. Recorre
 `D/F/J/K` y no drena vida ni guarda puntuaciones. Por el cableado actual,
-`A0` activa `F`, `A1` activa `D`, `A2` activa `J` y `A3` activa `K`.
+`A3` activa `D`, `A2` activa `F`, `A1` activa `J` y `A0` activa `K`.
