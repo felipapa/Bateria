@@ -62,10 +62,10 @@ Abre el proyecto en Godot y pulsa Play. Al iniciar, Godot lanza el puente
 golpes por UDP local y vuelve a buscar el Arduino si se desconecta. El menu
 muestra `PAD ARDUINO` en verde cuando recibe el heartbeat.
 
-Para probar los dos pads conectados, elige `PAD TEST` al final de la lista. Es
-una pista corta con notas alternadas en `D` y `F`, sin drenaje de vida ni
-registro de puntuacion. Golpea el primer pad en las notas `F` y el segundo en
-las notas `D`.
+Para probar los cuatro pads conectados, elige `PAD TEST` al final de la lista.
+Es una pista corta que recorre `D`, `F`, `J`, `K`, sin drenaje de vida ni
+registro de puntuacion. El cableado actual mapea `A0 -> F`, `A1 -> D`,
+`A2 -> J` y `A3 -> K`.
 
 Si no aparece `PAD ARDUINO`, comprueba el permiso del puerto, que el Monitor
 Serie este cerrado y que `python3 -m serial.tools.list_ports -v` liste el Uno.

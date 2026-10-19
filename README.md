@@ -119,6 +119,6 @@ Skillet (Expert). Cada una tiene BPM, offset y densidad de notas propios. El
 pack de samples de bateria se usa en los cuatro carriles, con volumen bajo para
 no tapar la cancion. Si el pack no carga, queda un sonido sintetico de respaldo.
 
-El nivel `PAD TEST` es una prueba corta para los dos primeros sensores. Solo
-usa `A0/A1` del Arduino (por el cableado actual, `A0` activa `F` y `A1` activa
-`D`) y no drena vida ni guarda puntuaciones.
+El nivel `PAD TEST` es una prueba corta de los cuatro sensores. Recorre
+`D/F/J/K` y no drena vida ni guarda puntuaciones. Por el cableado actual,
+`A0` activa `F`, `A1` activa `D`, `A2` activa `J` y `A3` activa `K`.

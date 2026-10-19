@@ -893,13 +893,13 @@ func _load_custom_levels() -> void:
 func _add_pad_test_level() -> void:
 	levels.append({
 		"title": "PAD TEST",
-		"subtitle": "Prueba de dos sensores",
+		"subtitle": "Prueba de cuatro sensores",
 		"difficulty": "TEST",
 		"rank": 0,
 		"bpm": 95.10,
 		"bpm_label": "95.10 BPM",
 		"length": "00:11",
-		"notes": "16 golpes alternados / D y F",
+		"notes": "16 golpes alternados / D F J K",
 		"song_path": THIS_LOVE_PATH,
 		"duration": 205.311,
 		"offset": 0.5050,
