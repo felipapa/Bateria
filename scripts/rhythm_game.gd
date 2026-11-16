@@ -6,15 +6,13 @@ extends Node2D
 enum Screen { MENU, NAME_ENTRY, GAME, EDITOR, SCORES, NEW_LEVEL, DELETE_CONFIRM }
 
 const LANE_COUNT := 4
-const THIS_LOVE_PATH := "res://YTDown.com_YouTube_Maroon-5-This-Love_Media_XPpTgCho5ZA_009_128k.mp3"
 const FAR_KID_PATH := "res://YTDown.com_YouTube_You-re-Gonna-Go-Far-Kid_Media_pmZKkb_UAg_009_128k.mp3"
-const HERO_PATH := "res://YTDown.com_YouTube_Skillet-Hero-Official-Video_Media_y9x2CHQClTU_009_128k.mp3"
 const PAD_TEST_CHART_PATH := "res://levels/pad_test_chart.json"
 const DRUM_SAMPLES_PATH := "res://YTDown.com_YouTube_Free-Acoustic-Drum-Pack-50-samples_Media_3UPfwIIxeZ0_009_128k.mp3"
 const TRAVEL_TIME := 1.65
-const SPAWN_Y := 118.0
+const SPAWN_Y := 104.0
 const JUDGEMENT_Y := 620.0
-const HIGHWAY_TOP_RATIO := 0.68
+const HIGHWAY_TOP_RATIO := 0.50
 const PERFECT_WINDOW := 0.060
 const GREAT_WINDOW := 0.110
 const GOOD_WINDOW := 0.180
@@ -32,13 +30,23 @@ const DRUM_SAMPLE_STARTS := [0.451, 0.979, 1.357, 1.740]
 const DRUM_SAMPLE_LENGTHS := [0.43, 0.26, 0.33, 0.34]
 const TAP_SERIAL_PORT := "auto"
 const TAP_UDP_PORT := 4242
+const SETTINGS_PATH := "user://pulsora_settings.json"
+const CLOCK_SNAP_THRESHOLD := 0.09
+const CLOCK_SMOOTHING := 0.18
 
 const LANE_KEYS := ["D", "F", "J", "K"]
 const LANE_COLORS := [
-	Color("#3B82F6"),
-	Color("#8B5CF6"),
-	Color("#F97316"),
+	Color("#38BDF8"),
+	Color("#C084FC"),
+	Color("#FB7185"),
 	Color("#FACC15")
+]
+const TIER_COLORS := [
+	Color("#38BDF8"),
+	Color("#34D399"),
+	Color("#FACC15"),
+	Color("#FB923C"),
+	Color("#E879F9")
 ]
 const KEY_TO_LANE := {
 	KEY_D: 0,
@@ -51,35 +59,24 @@ const KEY_TO_LANE := {
 	KEY_RIGHT: 3
 }
 const CUSTOM_LEVELS_PATH := "res://levels/custom_levels.json"
-const BUILTIN_LEVEL_COUNT := 3
+const BUILTIN_LEVEL_COUNT := 1
 const BRAND_NAME := "PULSORA"
 const BRAND_TAGLINE := "NEON RHYTHM LAB"
-const COLOR_BACKGROUND := Color("#0F172A")
+const COLOR_BACKGROUND := Color("#060914")
 const COLOR_BLUE := Color("#3B82F6")
 const COLOR_GREEN := Color("#22C55E")
 const COLOR_YELLOW := Color("#FACC15")
 const COLOR_ORANGE := Color("#F97316")
 const COLOR_RED := Color("#EF4444")
 const COLOR_WHITE := Color("#F8FAFC")
-const COLOR_PANEL := Color("#1E293B")
+const COLOR_PANEL := Color("#0E1530")
+const COLOR_ACCENT := Color("#22D3EE")
+const COLOR_PINK := Color("#F472B6")
+const COLOR_MUTED := Color("#7C8DB5")
 const COLOR_LIGHT := Color("#CBD5E1")
 const COLOR_VIOLET := Color("#8B5CF6")
 
 var levels: Array = [
-	{
-		"title": "THIS LOVE",
-		"subtitle": "Maroon 5",
-		"difficulty": "NORMAL",
-		"rank": 0,
-		"bpm": 95.10,
-		"bpm_label": "95.10 BPM",
-		"length": "03:26",
-		"notes": "Intro, versos y coros / 4 carriles",
-		"song_path": THIS_LOVE_PATH,
-		"duration": 205.311,
-		"offset": 0.5050,
-		"chart_path": "res://levels/this_love_chart.json"
-	},
 	{
 		"title": "YOU'RE GONNA GO FAR, KID",
 		"subtitle": "The Offspring",
@@ -92,21 +89,8 @@ var levels: Array = [
 		"song_path": FAR_KID_PATH,
 		"duration": 178.200,
 		"offset": 1.2540,
+		"accents": true,
 		"chart_path": "res://levels/far_kid_chart.json"
-	},
-	{
-		"title": "HERO",
-		"subtitle": "Skillet",
-		"difficulty": "EXPERT",
-		"rank": 3,
-		"bpm": 142.00,
-		"bpm_label": "142.00 BPM",
-		"length": "03:17",
-		"notes": "Alta densidad / dobles y cortes",
-		"song_path": HERO_PATH,
-		"duration": 196.812,
-		"offset": 1.9740,
-		"chart_path": "res://levels/hero_chart.json"
 	}
 ]
 
@@ -136,8 +120,8 @@ var song_player: AudioStreamPlayer
 var current_bpm := 94.83
 var current_beat := 60.0 / 94.83
 var current_song_offset := 0.3991
-var current_song_path := THIS_LOVE_PATH
-var current_chart_path := "res://levels/this_love_chart.json"
+var current_song_path := FAR_KID_PATH
+var current_chart_path := "res://levels/far_kid_chart.json"
 var song_length := 205.311
 var audio_started := false
 
@@ -179,10 +163,19 @@ var shake_clock := 0.0
 var side_flash_timer := 0.0
 var side_flash_color := Color.WHITE
 var fallback_font: Font
+var sync_calibration := 0.0
+var clock_stamp_usec := 0
+var autoplay := false
+var autoplay_pressed := {}
+var g_left := 0.0
+var g_width := 0.0
+var g_top_w := 0.0
+var g_bottom := 0.0
 
 
 func _ready() -> void:
-	fallback_font = ThemeDB.fallback_font
+	fallback_font = _make_font()
+	_load_settings()
 	_load_custom_levels()
 	_add_pad_test_level()
 	_load_scores()
@@ -193,10 +186,20 @@ func _ready() -> void:
 	_setup_drum_samples()
 	miss_sound = _create_miss_sound()
 	_start_tap_input()
+	if "--autoplay" in OS.get_cmdline_user_args():
+		autoplay = true
+		print("AUDIO output_latency=%.1fms mix_rate=%d" % [AudioServer.get_output_latency() * 1000.0, int(AudioServer.get_mix_rate())])
+		player_name = "BOT"
+		for arg in OS.get_cmdline_user_args():
+			if arg.begins_with("--level="):
+				selected_level = clampi(int(arg.substr(8)), 0, levels.size() - 1)
+		_start_level()
 	queue_redraw()
 
 
 func _exit_tree() -> void:
+	if autoplay:
+		print("AUTOPLAY level=%s song_time=%.1f notes=%d score=%d perfect=%d great=%d good=%d miss=%d maxcombo=%d" % [str(levels[selected_level].title), song_time, chart.size(), score, perfects, greats, goods, misses, max_combo])
 	if tap_bridge_pid > 0:
 		OS.kill(tap_bridge_pid)
 		tap_bridge_pid = -1
@@ -264,15 +267,16 @@ func _process(delta: float) -> void:
 					song_time = 0.0
 					_start_song_audio()
 			elif audio_started and song_player != null:
-				# This compensates the audio mix buffer so the visual line and the
-				# audible beat use the same clock.
 				if song_player.playing:
-					song_time = song_player.get_playback_position() + AudioServer.get_time_since_last_mix()
+					_advance_song_clock(delta)
 				else:
 					# AudioStreamPlayer stops at the end instead of advancing its clock.
 					song_time = maxf(song_time, song_length)
 			else:
 				song_time += delta
+			clock_stamp_usec = Time.get_ticks_usec()
+			if autoplay:
+				_run_autoplay()
 			if song_time >= 0.0 and not _is_pad_test_level():
 				life = maxf(0.0, life - delta * LIFE_DRAIN_PER_SECOND)
 			_update_song(delta)
@@ -293,6 +297,74 @@ func _process(delta: float) -> void:
 	feedback_timer = maxf(0.0, feedback_timer - delta)
 	pulse_timer = maxf(0.0, pulse_timer - delta)
 	queue_redraw()
+
+
+func _make_font() -> Font:
+	var font := SystemFont.new()
+	font.font_names = PackedStringArray(["Bahnschrift", "Segoe UI Semibold", "Segoe UI", "Arial", "Noto Sans", "DejaVu Sans"])
+	font.font_weight = 600
+	return font
+
+
+func _raw_audio_time() -> float:
+	# Position + time since the last mix, minus the output latency, is the moment
+	# the listener actually hears the current sample.
+	return song_player.get_playback_position() + AudioServer.get_time_since_last_mix() - AudioServer.get_output_latency() - sync_calibration
+
+
+func _advance_song_clock(delta: float) -> void:
+	# The audio position only updates once per mix chunk, so raw readings jitter.
+	# Advance with the frame delta and gently steer toward the audio clock; snap
+	# only when the two disagree a lot (seek, stall, first frames).
+	var target := _raw_audio_time()
+	var predicted := song_time + delta
+	var diff := target - predicted
+	if absf(diff) > CLOCK_SNAP_THRESHOLD:
+		song_time = target
+	else:
+		song_time = predicted + diff * CLOCK_SMOOTHING
+
+
+func _press_time() -> float:
+	# Timestamp a key press at the moment it happened, not at the last frame.
+	var elapsed := float(Time.get_ticks_usec() - clock_stamp_usec) / 1000000.0
+	return song_time + clampf(elapsed, 0.0, 0.05)
+
+
+func _adjust_calibration(amount: float) -> void:
+	sync_calibration = clampf(sync_calibration + amount, -0.300, 0.300)
+	_save_settings()
+
+
+func _load_settings() -> void:
+	if not FileAccess.file_exists(SETTINGS_PATH):
+		return
+	var file := FileAccess.open(SETTINGS_PATH, FileAccess.READ)
+	if file == null:
+		return
+	var parsed = JSON.parse_string(file.get_as_text())
+	file.close()
+	if parsed is Dictionary:
+		sync_calibration = clampf(float(parsed.get("sync_calibration", 0.0)), -0.300, 0.300)
+
+
+func _save_settings() -> void:
+	var file := FileAccess.open(SETTINGS_PATH, FileAccess.WRITE)
+	if file == null:
+		return
+	file.store_string(JSON.stringify({"sync_calibration": sync_calibration}))
+	file.close()
+
+
+func _run_autoplay() -> void:
+	# Test bot: presses each note when its time arrives (command line: -- --autoplay).
+	for note in active_notes:
+		if note.hit or note.missed:
+			continue
+		var key := "%.4f:%d" % [float(note.time), int(note.lane)]
+		if song_time >= float(note.time) and not autoplay_pressed.has(key):
+			autoplay_pressed[key] = true
+			_press_lane(int(note.lane))
 
 
 func _input(event: InputEvent) -> void:
@@ -335,6 +407,9 @@ func _input(event: InputEvent) -> void:
 		if song_player != null:
 			song_player.stream_paused = is_paused
 		return
+	if is_paused and (keycode == KEY_LEFT or keycode == KEY_RIGHT):
+		_adjust_calibration(-0.005 if keycode == KEY_LEFT else 0.005)
+		return
 	if KEY_TO_LANE.has(keycode):
 		_press_lane(int(KEY_TO_LANE[keycode]))
 
@@ -344,6 +419,10 @@ func _handle_menu_key(keycode: int) -> void:
 		selected_level = maxi(0, selected_level - 1)
 	elif keycode == KEY_DOWN or keycode == KEY_S:
 		selected_level = mini(levels.size() - 1, selected_level + 1)
+	elif keycode == KEY_LEFT:
+		_adjust_calibration(-0.005)
+	elif keycode == KEY_RIGHT:
+		_adjust_calibration(0.005)
 	elif keycode == KEY_ENTER or keycode == KEY_SPACE:
 		_open_name_entry()
 	elif keycode == KEY_E:
@@ -503,6 +582,7 @@ func _start_level(use_current_chart: bool = false) -> void:
 		song_player.stop()
 		song_player.stream_paused = false
 	audio_started = false
+	autoplay_pressed.clear()
 	song_time = -3.0
 	chart_cursor = 0
 	active_notes.clear()
@@ -721,9 +801,7 @@ func _load_chart_file() -> bool:
 		if note is Dictionary and note.has("time") and note.has("lane"):
 			var source_time := float(note.time)
 			var note_time := source_time + chart_shift
-			if current_song_path == THIS_LOVE_PATH:
-				note_time = 0.5050 + (source_time - 0.3991) * (60.0 / 94.83) / current_beat
-			elif current_song_path == FAR_KID_PATH and not is_zero_approx(chart_shift):
+			if current_song_path == FAR_KID_PATH and not is_zero_approx(chart_shift):
 				note_time = FAR_KID_FIRST_NOTE + (source_time - first_source_time) * (60.0 / 126.05) / current_beat
 			note_time = clampf(note_time, 0.0, song_length)
 			var time_key := "%.4f" % note_time
@@ -752,7 +830,7 @@ func _sort_chart_notes(first: Dictionary, second: Dictionary) -> bool:
 
 
 func _apply_hard_mode_accents() -> void:
-	if _is_pad_test_level():
+	if _is_pad_test_level() or not bool(levels[selected_level].get("accents", false)):
 		return
 	var rank := int(levels[selected_level].rank)
 	if chart.is_empty():
@@ -807,6 +885,8 @@ func _finish_level(won: bool) -> void:
 
 
 func _record_score() -> void:
+	if autoplay:
+		return
 	if player_name.strip_edges().is_empty():
 		return
 	var normalized_name := player_name.strip_edges().to_lower()
@@ -896,13 +976,13 @@ func _add_pad_test_level() -> void:
 		"subtitle": "Prueba de cuatro sensores",
 		"difficulty": "TEST",
 		"rank": 0,
-		"bpm": 95.10,
-		"bpm_label": "95.10 BPM",
+		"bpm": 126.20,
+		"bpm_label": "126.20 BPM",
 		"length": "00:11",
 		"notes": "16 golpes alternados / D F J K",
-		"song_path": THIS_LOVE_PATH,
-		"duration": 205.311,
-		"offset": 0.5050,
+		"song_path": FAR_KID_PATH,
+		"duration": 178.200,
+		"offset": 1.2540,
 		"chart_path": PAD_TEST_CHART_PATH,
 		"is_pad_test": true,
 		"test_chart_end": 10.5
@@ -1057,6 +1137,13 @@ func _update_misses() -> void:
 			note.missed = true
 			active_notes[index] = note
 			_register_miss()
+	# Drop notes that already left the screen so per-frame loops stay short.
+	while not active_notes.is_empty():
+		var oldest: Dictionary = active_notes[0]
+		if (oldest.hit or oldest.missed) and song_time - float(oldest.time) > 0.6:
+			active_notes.remove_at(0)
+		else:
+			break
 
 
 func _press_lane(lane: int) -> void:
@@ -1065,11 +1152,12 @@ func _press_lane(lane: int) -> void:
 
 	var best_index := -1
 	var best_distance := INF
+	var press_time := _press_time()
 	for index in range(active_notes.size()):
 		var note: Dictionary = active_notes[index]
 		if note.hit or note.missed or int(note.lane) != lane:
 			continue
-		var distance: float = absf(song_time - float(note.time))
+		var distance: float = absf(press_time - float(note.time))
 		if distance <= GOOD_WINDOW and distance < best_distance:
 			best_index = index
 			best_distance = distance
@@ -1122,6 +1210,8 @@ func _press_lane(lane: int) -> void:
 
 
 func _register_miss() -> void:
+	if autoplay:
+		print("MISS at song_time=%.3f" % song_time)
 	misses += 1
 	judged_notes += 1
 	combo = 0
@@ -1453,177 +1543,351 @@ func _draw() -> void:
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
+# ---------------------------------------------------------------------------
+# Drawing helpers
+# ---------------------------------------------------------------------------
+
+func _t(pos: Vector2, text: String, size: int, color: Color, align: HorizontalAlignment = HORIZONTAL_ALIGNMENT_LEFT, width: float = -1.0) -> void:
+	draw_string(fallback_font, pos + Vector2(0.0, 2.0), text, align, width, size, Color(0.0, 0.0, 0.0, color.a * 0.55))
+	draw_string(fallback_font, pos, text, align, width, size, color)
+
+
+func _text_width(text: String, size: int) -> float:
+	return fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1.0, size).x
+
+
+func _rrect_points(rect: Rect2, radius: float, segments: int = 5) -> PackedVector2Array:
+	var r := minf(radius, minf(rect.size.x, rect.size.y) * 0.42)
+	var points := PackedVector2Array()
+	if r < 0.8:
+		return PackedVector2Array([rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)])
+	var centers := [
+		Vector2(rect.end.x - r, rect.position.y + r),
+		Vector2(rect.end.x - r, rect.end.y - r),
+		Vector2(rect.position.x + r, rect.end.y - r),
+		Vector2(rect.position.x + r, rect.position.y + r)
+	]
+	for corner in range(4):
+		var center: Vector2 = centers[corner]
+		var start_angle := -PI * 0.5 + PI * 0.5 * float(corner)
+		for step in range(segments + 1):
+			points.append(center + Vector2.from_angle(start_angle + PI * 0.5 * float(step) / float(segments)) * r)
+	return points
+
+
+func _rrect(rect: Rect2, radius: float, color: Color) -> void:
+	draw_colored_polygon(_rrect_points(rect, radius), color)
+
+
+func _rrect_line(rect: Rect2, radius: float, color: Color, width: float = 2.0) -> void:
+	var points := _rrect_points(rect, radius)
+	points.append(points[0])
+	draw_polyline(points, color, width, true)
+
+
+func _vgrad(rect: Rect2, top: Color, bottom: Color) -> void:
+	draw_polygon(
+		PackedVector2Array([rect.position, Vector2(rect.end.x, rect.position.y), rect.end, Vector2(rect.position.x, rect.end.y)]),
+		PackedColorArray([top, top, bottom, bottom])
+	)
+
+
+func _glow(center: Vector2, radius: float, color: Color, strength: float = 1.0) -> void:
+	for layer in range(12):
+		var k := float(layer) / 11.0
+		draw_circle(center, radius * (1.0 - k * 0.85), Color(color, strength * 0.016 * (1.0 + k * 1.5)))
+
+
+func _panel(rect: Rect2, accent: Color, radius: float = 14.0) -> void:
+	_rrect(Rect2(rect.position + Vector2(0.0, 5.0), rect.size), radius, Color(0.0, 0.0, 0.0, 0.35))
+	_vgrad_rounded(rect, radius, Color(COLOR_PANEL, 0.96), Color("#080D20", 0.96))
+	_rrect_line(rect, radius, Color(accent, 0.55), 1.5)
+	draw_line(rect.position + Vector2(radius, 1.0), Vector2(rect.end.x - radius, rect.position.y + 1.0), Color(accent, 0.9), 2.0)
+
+
+func _vgrad_rounded(rect: Rect2, radius: float, top: Color, bottom: Color) -> void:
+	var points := _rrect_points(rect, radius)
+	var colors := PackedColorArray()
+	for point in points:
+		colors.append(top.lerp(bottom, clampf((point.y - rect.position.y) / maxf(1.0, rect.size.y), 0.0, 1.0)))
+	draw_polygon(points, colors)
+
+
+func _chip(pos: Vector2, key: String, label: String, accent: Color = COLOR_ACCENT) -> float:
+	var key_width := _text_width(key, 13) + 18.0
+	_rrect(Rect2(pos, Vector2(key_width, 26.0)), 7.0, Color(accent, 0.20))
+	_rrect_line(Rect2(pos, Vector2(key_width, 26.0)), 7.0, Color(accent, 0.85), 1.5)
+	draw_string(fallback_font, pos + Vector2(0.0, 18.0), key, HORIZONTAL_ALIGNMENT_CENTER, key_width, 13, COLOR_WHITE)
+	draw_string(fallback_font, pos + Vector2(key_width + 8.0, 18.0), label, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_MUTED)
+	return key_width + 8.0 + _text_width(label, 13) + 20.0
+
+
+func _difficulty_color(difficulty: String) -> Color:
+	match difficulty:
+		"EASY":
+			return Color("#34D399")
+		"NORMAL":
+			return Color("#38BDF8")
+		"HARD":
+			return Color("#FB923C")
+		"EXPERT":
+			return Color("#F43F5E")
+		"TEST":
+			return Color("#C084FC")
+	return COLOR_PINK
+
+
+func _badge(pos: Vector2, text: String, color: Color) -> float:
+	var width := _text_width(text, 12) + 20.0
+	_rrect(Rect2(pos, Vector2(width, 22.0)), 11.0, Color(color, 0.22))
+	_rrect_line(Rect2(pos, Vector2(width, 22.0)), 11.0, Color(color, 0.9), 1.3)
+	draw_string(fallback_font, pos + Vector2(0.0, 16.0), text, HORIZONTAL_ALIGNMENT_CENTER, width, 12, color)
+	return width
+
+
+func _best_score_for(level_index: int) -> int:
+	var best := 0
+	for entry in scores:
+		if int(entry.level) == level_index:
+			best = maxi(best, int(entry.score))
+	return best
+
+
+func _beat_pulse(time: float) -> float:
+	if time < current_song_offset:
+		return 0.0
+	var phase := fmod(time - current_song_offset, current_beat) / current_beat
+	return pow(1.0 - phase, 3.0)
+
+
+func _draw_background(vs: Vector2, time: float, pulse: float, tint: Color, energy: float) -> void:
+	_vgrad(Rect2(Vector2.ZERO, vs), Color("#04060F"), Color("#0B1230").lerp(Color(tint, 1.0), energy * 0.16))
+	# Stage light beams swaying from the ceiling.
+	for beam in range(6):
+		var base_x := vs.x * (float(beam) + 0.5) / 6.0
+		var sway := sin(time * 0.5 + float(beam) * 1.7) * 150.0
+		var color: Color = LANE_COLORS[beam % LANE_COUNT]
+		var alpha := 0.016 + pulse * 0.018 + energy * 0.022
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(base_x - 10.0, 0.0), Vector2(base_x + 10.0, 0.0),
+			Vector2(base_x + sway + 130.0, vs.y), Vector2(base_x + sway - 130.0, vs.y)
+		]), Color(color, alpha))
+	# Soft horizon glow behind the highway.
+	_glow(Vector2(vs.x * 0.5, vs.y * 0.95), 560.0, tint, 0.45 + pulse * 0.4 + energy * 0.7)
+	# Drifting dust.
+	for index in range(46):
+		var seed_value := float(index)
+		var speed := 5.0 + fmod(seed_value * 7.0, 17.0)
+		var x := fposmod(seed_value * 97.3 + time * (4.0 + fmod(seed_value, 5.0) * 2.5), vs.x)
+		var y := fposmod(seed_value * 53.7 - time * speed, vs.y)
+		var size := 0.8 + fmod(seed_value, 3.0) * 0.55
+		draw_circle(Vector2(x, y), size, Color(COLOR_WHITE, 0.05 + 0.12 * fmod(seed_value * 0.37, 1.0)))
+
+
 func _draw_brand(position: Vector2, compact: bool) -> void:
-	var radius := 18.0 if compact else 23.0
-	draw_circle(position, radius + 5.0, Color(COLOR_VIOLET, 0.12))
-	draw_arc(position, radius, -PI * 0.82, PI * 0.82, 24, COLOR_BLUE, 3.0)
-	draw_arc(position, radius - 6.0, PI * 0.18, TAU * 0.82, 20, COLOR_GREEN, 2.0)
-	draw_line(position + Vector2(-radius * 0.72, 0.0), position + Vector2(radius * 0.72, 0.0), COLOR_YELLOW, 2.0)
-	draw_circle(position, 5.0, COLOR_ORANGE)
-	var text_position := position + Vector2(radius + 15.0, 7.0)
-	draw_string(fallback_font, text_position, BRAND_NAME, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 28 if not compact else 22, COLOR_WHITE)
+	var size := 20 if compact else 46
+	_t(position, BRAND_NAME, size, COLOR_WHITE)
+	var width := _text_width(BRAND_NAME, size)
+	draw_line(position + Vector2(0.0, 8.0 if compact else 12.0), position + Vector2(width, 8.0 if compact else 12.0), Color(COLOR_ACCENT, 0.9), 3.0 if not compact else 2.0)
+	draw_line(position + Vector2(width * 0.55, 8.0 if compact else 12.0), position + Vector2(width, 8.0 if compact else 12.0), Color(COLOR_PINK, 0.95), 3.0 if not compact else 2.0)
 	if not compact:
-		draw_string(fallback_font, text_position + Vector2(1.0, 22.0), BRAND_TAGLINE, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 10, COLOR_LIGHT)
+		_t(position + Vector2(2.0, 38.0), BRAND_TAGLINE, 12, COLOR_MUTED)
 
 
 func _draw_action_button(rect: Rect2, label: String, accent: Color) -> void:
-	draw_rect(rect, Color("#111C34"))
-	draw_rect(rect, Color(accent, 0.70), false, 2.0)
-	draw_circle(rect.position + Vector2(15.0, rect.size.y * 0.5), 3.0, accent)
-	draw_string(fallback_font, rect.position + Vector2(27.0, rect.size.y * 0.5 + 5.0), label, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 34.0, 13, COLOR_WHITE)
+	_rrect(rect, 10.0, Color(accent, 0.14))
+	_rrect_line(rect, 10.0, Color(accent, 0.85), 1.5)
+	draw_string(fallback_font, rect.position + Vector2(0.0, rect.size.y * 0.5 + 5.0), label, HORIZONTAL_ALIGNMENT_CENTER, rect.size.x, 14, COLOR_WHITE)
+
+
+# ---------------------------------------------------------------------------
+# Menus
+# ---------------------------------------------------------------------------
+
+func _draw_screen_base(title: String, accent: Color = COLOR_ACCENT) -> Vector2:
+	var vs := get_viewport_rect().size
+	var pulse := 0.5 + 0.5 * sin(menu_time * 1.6)
+	_draw_background(vs, menu_time, pulse * 0.35, accent, 0.25)
+	_draw_brand(Vector2(56.0, 64.0), false)
+	if not title.is_empty():
+		_t(Vector2(56.0, 138.0), title, 15, accent)
+	return vs
 
 
 func _draw_menu() -> void:
-	var viewport_size := get_viewport_rect().size
-	_draw_animated_background(viewport_size, menu_time)
-	_draw_brand(Vector2(66.0, 48.0), false)
-
-	draw_string(fallback_font, Vector2(66.0, 168.0), "SELECCION DE NIVEL", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, COLOR_WHITE)
-	draw_string(fallback_font, Vector2(66.0, 195.0), "Elige una pista para comenzar", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_LIGHT)
-
-	var card_size := Vector2(minf(700.0, viewport_size.x - 132.0), 210.0)
-	var card_position := Vector2((viewport_size.x - card_size.x) * 0.5, 235.0)
-	var card := Rect2(card_position, card_size)
-	draw_rect(card, COLOR_PANEL)
-	draw_rect(card, COLOR_BLUE, false, 2.0)
-	draw_rect(Rect2(card_position, Vector2(7.0, card_size.y)), LANE_COLORS[selected_level % LANE_COUNT])
-
+	var vs := _draw_screen_base("", COLOR_VIOLET)
+	_t(Vector2(60.0, 200.0), "ELIGE UNA CANCION", 15, COLOR_ACCENT)
+	_t(Vector2(60.0, 246.0), "%02d / %02d" % [selected_level + 1, levels.size()], 34, COLOR_WHITE)
 	var level: Dictionary = levels[selected_level]
-	draw_string(fallback_font, card_position + Vector2(34.0, 50.0), "%02d" % (selected_level + 1), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, COLOR_LIGHT)
-	draw_string(fallback_font, card_position + Vector2(92.0, 51.0), str(level.title), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 27, COLOR_WHITE)
-	draw_string(fallback_font, card_position + Vector2(92.0, 78.0), str(level.subtitle), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, COLOR_LIGHT)
-	draw_string(fallback_font, card_position + Vector2(34.0, 132.0), "DIFICULTAD  " + str(level.difficulty), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_GREEN)
-	draw_string(fallback_font, card_position + Vector2(220.0, 132.0), str(level.bpm_label), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_YELLOW)
-	draw_string(fallback_font, card_position + Vector2(350.0, 132.0), str(level.length), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_LIGHT)
-	draw_string(fallback_font, card_position + Vector2(34.0, 174.0), str(level.notes), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_LIGHT)
-	draw_string(fallback_font, card_position + Vector2(card_size.x - 260.0, 174.0), "ENTER  JUGAR    E  EDITOR", HORIZONTAL_ALIGNMENT_CENTER, 220.0, 14, COLOR_WHITE)
-	var button_y := card_position.y + card_size.y + 24.0
-	var button_width := (card_size.x - 18.0) / 4.0
-	_draw_action_button(Rect2(card_position.x, button_y, button_width, 42.0), "ENTER  JUGAR", COLOR_GREEN)
-	_draw_action_button(Rect2(card_position.x + button_width + 6.0, button_y, button_width, 42.0), "E  EDITAR", COLOR_VIOLET)
-	_draw_action_button(Rect2(card_position.x + (button_width + 6.0) * 2.0, button_y, button_width, 42.0), "N  NUEVO", COLOR_ORANGE)
-	_draw_action_button(Rect2(card_position.x + (button_width + 6.0) * 3.0, button_y, button_width, 42.0), "T  TABLA", COLOR_BLUE)
-
-	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "ARRIBA / ABAJO seleccionar    ENTER jugar    E editor    N nuevo    X borrar cancion    C borrar chart    T tabla", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
-	draw_string(fallback_font, Vector2(viewport_size.x - 260.0, viewport_size.y - 46.0), "NIVEL  %02d / %02d" % [selected_level + 1, levels.size()], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#6678aa"))
+	var diff_color := _difficulty_color(str(level.difficulty))
+	_t(Vector2(60.0, 330.0), "MEJOR PUNTAJE", 12, COLOR_MUTED)
+	var best := _best_score_for(selected_level)
+	_t(Vector2(60.0, 366.0), "%07d" % best if best > 0 else "--", 30, COLOR_YELLOW)
+	_t(Vector2(60.0, 430.0), "SINCRONIA", 12, COLOR_MUTED)
+	_t(Vector2(60.0, 462.0), "%+d ms" % int(round(sync_calibration * 1000.0)), 24, COLOR_ACCENT)
+	_t(Vector2(60.0, 486.0), "IZQ / DER para ajustar", 12, COLOR_MUTED)
 	if tap_connected:
-		draw_circle(Vector2(viewport_size.x - 380.0, viewport_size.y - 51.0), 5.0, COLOR_GREEN)
-		draw_string(fallback_font, Vector2(viewport_size.x - 370.0, viewport_size.y - 46.0), "PAD ARDUINO", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_GREEN)
+		draw_circle(Vector2(66.0, 536.0), 5.0, COLOR_GREEN)
+		_t(Vector2(80.0, 541.0), "PAD ARDUINO CONECTADO", 12, COLOR_GREEN)
+
+	# Song carousel.
+	var card_x := 430.0
+	var card_w := vs.x - card_x - 56.0
+	var selected_h := 168.0
+	var other_h := 74.0
+	var center_y := 250.0
+	for offset in range(-2, 3):
+		var index := selected_level + offset
+		if index < 0 or index >= levels.size():
+			continue
+		var item: Dictionary = levels[index]
+		var color := _difficulty_color(str(item.difficulty))
+		var is_selected := offset == 0
+		var height := selected_h if is_selected else other_h
+		var top := center_y
+		if offset < 0:
+			top = center_y - 14.0 + float(offset) * (other_h + 12.0)
+		elif offset > 0:
+			top = center_y + selected_h + 14.0 + float(offset - 1) * (other_h + 12.0)
+		var fade := 1.0 if is_selected else clampf(1.0 - absf(float(offset)) * 0.25, 0.2, 1.0)
+		var rect := Rect2(card_x + (0.0 if is_selected else 26.0), top, card_w - (0.0 if is_selected else 26.0), height)
+		if is_selected:
+			_glow(rect.position + rect.size * 0.5, 260.0, color, 0.5)
+			_panel(rect, color)
+			_rrect(Rect2(rect.position.x + 14.0, rect.position.y + 16.0, 6.0, height - 32.0), 3.0, color)
+			_t(rect.position + Vector2(40.0, 52.0), str(item.title), 30, COLOR_WHITE, HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 60.0)
+			_t(rect.position + Vector2(40.0, 80.0), str(item.subtitle), 16, COLOR_LIGHT)
+			var badge_x := _badge(rect.position + Vector2(40.0, 102.0), str(item.difficulty), color)
+			_t(rect.position + Vector2(56.0 + badge_x, 119.0), "%s    %s" % [str(item.bpm_label), str(item.length)], 14, COLOR_LIGHT)
+			_t(rect.position + Vector2(40.0, 152.0), str(item.notes), 12, COLOR_MUTED)
+		else:
+			_rrect(rect, 12.0, Color(COLOR_PANEL, 0.75 * fade))
+			_rrect_line(rect, 12.0, Color(color, 0.35 * fade), 1.2)
+			_rrect(Rect2(rect.position.x + 12.0, rect.position.y + 14.0, 4.0, height - 28.0), 2.0, Color(color, 0.8 * fade))
+			_t(rect.position + Vector2(32.0, 33.0), str(item.title), 18, Color(COLOR_WHITE, fade), HORIZONTAL_ALIGNMENT_LEFT, rect.size.x - 150.0)
+			_t(rect.position + Vector2(32.0, 56.0), str(item.subtitle), 13, Color(COLOR_MUTED, fade))
+			_t(rect.position + Vector2(rect.size.x - 120.0, 40.0), str(item.difficulty), 12, Color(color, fade), HORIZONTAL_ALIGNMENT_RIGHT, 100.0)
+
+	# Footer shortcuts.
+	var x := 56.0
+	var y := vs.y - 48.0
+	x += _chip(Vector2(x, y), "ARR/ABA", "elegir")
+	x += _chip(Vector2(x, y), "ENTER", "jugar", COLOR_GREEN)
+	x += _chip(Vector2(x, y), "E", "editor", COLOR_VIOLET)
+	x += _chip(Vector2(x, y), "N", "nuevo", COLOR_ORANGE)
+	x += _chip(Vector2(x, y), "T", "tabla", COLOR_YELLOW)
+	x += _chip(Vector2(x, y), "X", "borrar", COLOR_RED)
+	x += _chip(Vector2(x, y), "C", "limpiar chart", COLOR_RED)
 
 
 func _draw_name_entry() -> void:
-	var viewport_size := get_viewport_rect().size
-	_draw_animated_background(viewport_size, menu_time)
+	var vs := _draw_screen_base("PREPARA TU PARTIDA")
 	var level: Dictionary = levels[selected_level]
-	_draw_brand(Vector2(66.0, 48.0), false)
-	draw_string(fallback_font, Vector2(66.0, 168.0), "PREPARA TU PARTIDA", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, COLOR_LIGHT)
-	var panel := Rect2((viewport_size.x - 620.0) * 0.5, 190.0, 620.0, 265.0)
-	draw_rect(panel, Color("#101a36"))
-	draw_rect(panel, Color("#806a45"), false, 2.0)
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 48.0), "NOMBRE DEL JUGADOR", HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 18, Color("#d8e2ff"))
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 83.0), str(level.title), HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 16, Color("#ffc857"))
+	var panel := Rect2((vs.x - 620.0) * 0.5, 210.0, 620.0, 280.0)
+	_panel(panel, _difficulty_color(str(level.difficulty)))
+	_t(Vector2(panel.position.x, panel.position.y + 52.0), "NOMBRE DEL JUGADOR", 20, COLOR_WHITE, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x)
+	_t(Vector2(panel.position.x, panel.position.y + 82.0), str(level.title), 15, COLOR_YELLOW, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x)
 	var typed_name := name_input
 	if int(menu_time * 2.0) % 2 == 0:
 		typed_name += "_"
-	draw_rect(Rect2(panel.position.x + 95.0, panel.position.y + 115.0, panel.size.x - 190.0, 52.0), Color("#090e20"))
-	draw_string(fallback_font, Vector2(panel.position.x + 105.0, panel.position.y + 150.0), typed_name, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x - 210.0, 24, Color.WHITE)
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 215.0), "ENTER comenzar    BACKSPACE borrar    ESC cancelar", HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 14, Color("#a9b8df"))
-	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "Escribe hasta 12 caracteres", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
+	var field := Rect2(panel.position.x + 100.0, panel.position.y + 112.0, panel.size.x - 200.0, 58.0)
+	_rrect(field, 10.0, Color("#050816"))
+	_rrect_line(field, 10.0, Color(COLOR_ACCENT, 0.8), 1.5)
+	_t(Vector2(field.position.x, field.position.y + 39.0), typed_name, 26, COLOR_WHITE, HORIZONTAL_ALIGNMENT_CENTER, field.size.x)
+	var x := panel.position.x + 96.0
+	x += _chip(Vector2(x, panel.position.y + 210.0), "ENTER", "comenzar", COLOR_GREEN)
+	x += _chip(Vector2(x, panel.position.y + 210.0), "ESC", "cancelar", COLOR_RED)
+	_t(Vector2(56.0, vs.y - 36.0), "Hasta 12 caracteres", 13, COLOR_MUTED)
 
 
 func _draw_new_level() -> void:
-	var viewport_size := get_viewport_rect().size
-	_draw_animated_background(viewport_size, menu_time)
-	_draw_brand(Vector2(66.0, 48.0), false)
-	draw_string(fallback_font, Vector2(66.0, 168.0), "NUEVO NIVEL", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, COLOR_LIGHT)
-	var panel := Rect2((viewport_size.x - 780.0) * 0.5, 150.0, 780.0, 390.0)
-	draw_rect(panel, Color("#101a36"))
-	draw_rect(panel, Color("#806a45"), false, 2.0)
+	var vs := _draw_screen_base("NUEVO NIVEL", COLOR_ORANGE)
+	var panel := Rect2((vs.x - 780.0) * 0.5, 170.0, 780.0, 400.0)
+	_panel(panel, COLOR_ORANGE)
 	if new_song_files.is_empty():
-		draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 105.0), "No hay MP3 nuevos", HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 27, Color("#ffcf78"))
-		draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 155.0), "Copia una cancion en la carpeta del proyecto y vuelve a abrir esta pantalla", HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 14, Color("#a9b8df"))
+		_t(Vector2(panel.position.x, panel.position.y + 120.0), "No hay MP3 nuevos", 28, COLOR_YELLOW, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x)
+		_t(Vector2(panel.position.x, panel.position.y + 165.0), "Copia una cancion en la carpeta del proyecto y vuelve a abrir esta pantalla", 14, COLOR_LIGHT, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x)
 	else:
-		draw_string(fallback_font, panel.position + Vector2(34.0, 48.0), "CANCION", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#a9b8df"))
-		draw_string(fallback_font, panel.position + Vector2(34.0, 83.0), str(new_song_files[new_song_index]).get_file(), HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 18, Color.WHITE)
-		var bpm_color := Color("#ffc857") if new_level_field == 1 else Color("#a9b8df")
-		var offset_color := Color("#ffc857") if new_level_field == 2 else Color("#a9b8df")
-		var difficulty_color := Color("#ffc857") if new_level_field == 3 else Color("#a9b8df")
-		draw_string(fallback_font, panel.position + Vector2(34.0, 145.0), "BPM  " + new_song_bpm, HORIZONTAL_ALIGNMENT_LEFT, 280.0, 20, bpm_color)
-		draw_string(fallback_font, panel.position + Vector2(360.0, 145.0), "OFFSET  " + new_song_offset + " s", HORIZONTAL_ALIGNMENT_LEFT, 300.0, 20, offset_color)
-		draw_string(fallback_font, panel.position + Vector2(34.0, 198.0), "DIFICULTAD  " + CUSTOM_DIFFICULTIES[new_level_difficulty], HORIZONTAL_ALIGNMENT_LEFT, 330.0, 20, difficulty_color)
-		draw_string(fallback_font, panel.position + Vector2(34.0, 238.0), "El nivel se creara con el chart completamente vacio", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 14, Color("#778bbd"))
-		draw_string(fallback_font, panel.position + Vector2(34.0, 286.0), "TAB campo    ARRIBA/ABAJO cancion    IZQ/DER dificultad", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 14, Color("#8296c9"))
-		draw_string(fallback_font, panel.position + Vector2(34.0, 306.0), "ENTER crear y abrir editor    ESC cancelar", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 68.0, 16, Color("#8fffd6"))
-	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "El BPM define el snap del editor; el offset marca el primer golpe", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
+		var active := COLOR_YELLOW
+		_t(panel.position + Vector2(36.0, 50.0), "CANCION", 12, COLOR_MUTED)
+		_t(panel.position + Vector2(36.0, 84.0), str(new_song_files[new_song_index]).get_file(), 18, COLOR_WHITE, HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 72.0)
+		_t(panel.position + Vector2(36.0, 140.0), "BPM", 12, COLOR_MUTED)
+		_t(panel.position + Vector2(36.0, 172.0), new_song_bpm, 24, active if new_level_field == 1 else COLOR_LIGHT)
+		_t(panel.position + Vector2(300.0, 140.0), "OFFSET (s)", 12, COLOR_MUTED)
+		_t(panel.position + Vector2(300.0, 172.0), new_song_offset, 24, active if new_level_field == 2 else COLOR_LIGHT)
+		_t(panel.position + Vector2(36.0, 230.0), "DIFICULTAD", 12, COLOR_MUTED)
+		_t(panel.position + Vector2(36.0, 262.0), CUSTOM_DIFFICULTIES[new_level_difficulty], 24, active if new_level_field == 3 else COLOR_LIGHT)
+		_t(panel.position + Vector2(36.0, 306.0), "El nivel se crea con el chart vacio. Tip: py -3 tools/analyze_song.py cancion.mp3 mide BPM y offset.", 13, COLOR_MUTED)
+		var x := panel.position.x + 36.0
+		var y := panel.position.y + 340.0
+		x += _chip(Vector2(x, y), "TAB", "campo")
+		x += _chip(Vector2(x, y), "ARR/ABA", "cancion")
+		x += _chip(Vector2(x, y), "IZQ/DER", "dificultad")
+		x += _chip(Vector2(x, y), "ENTER", "crear", COLOR_GREEN)
+		x += _chip(Vector2(x, y), "ESC", "cancelar", COLOR_RED)
 
 
 func _draw_delete_confirmation() -> void:
-	var viewport_size := get_viewport_rect().size
-	_draw_animated_background(viewport_size, menu_time)
+	var vs := _draw_screen_base("CONFIRMAR ELIMINACION", COLOR_RED)
 	var level: Dictionary = levels[selected_level]
-	var panel := Rect2((viewport_size.x - 680.0) * 0.5, 190.0, 680.0, 250.0)
-	draw_rect(panel, Color("#101a36"))
-	draw_rect(panel, Color("#ff5e6c"), false, 2.0)
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 52.0), "CONFIRMAR ELIMINACION", HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 22, Color("#f2f5ff"))
-	if delete_action == "song":
-		draw_string(fallback_font, Vector2(panel.position.x + 35.0, panel.position.y + 105.0), "Se borrara la cancion y todo su chart:", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 70.0, 16, Color("#ffcf78"))
-	else:
-		draw_string(fallback_font, Vector2(panel.position.x + 35.0, panel.position.y + 105.0), "Se borraran todas las notas del chart:", HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 70.0, 16, Color("#ffcf78"))
-	draw_string(fallback_font, Vector2(panel.position.x + 35.0, panel.position.y + 140.0), str(level.title), HORIZONTAL_ALIGNMENT_LEFT, panel.size.x - 70.0, 20, Color.WHITE)
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 205.0), "ENTER o Y confirmar    ESC o N cancelar", HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 15, Color("#a9b8df"))
-	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "La accion no se puede deshacer", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#ff5e6c"))
+	var panel := Rect2((vs.x - 680.0) * 0.5, 210.0, 680.0, 260.0)
+	_panel(panel, COLOR_RED)
+	var message := "Se borrara la cancion y todo su chart:" if delete_action == "song" else "Se borraran todas las notas del chart:"
+	_t(Vector2(panel.position.x, panel.position.y + 70.0), message, 17, COLOR_YELLOW, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x)
+	_t(Vector2(panel.position.x, panel.position.y + 115.0), str(level.title), 26, COLOR_WHITE, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x)
+	_t(Vector2(panel.position.x, panel.position.y + 150.0), "Esta accion no se puede deshacer", 13, COLOR_RED, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x)
+	var x := panel.position.x + 170.0
+	x += _chip(Vector2(x, panel.position.y + 196.0), "ENTER / Y", "confirmar", COLOR_RED)
+	x += _chip(Vector2(x, panel.position.y + 196.0), "ESC / N", "cancelar", COLOR_ACCENT)
 
 
 func _draw_scores() -> void:
-	var viewport_size := get_viewport_rect().size
-	_draw_animated_background(viewport_size, menu_time)
+	var vs := _draw_screen_base("TABLA DE PUNTUACIONES", COLOR_YELLOW)
 	var level: Dictionary = levels[selected_level]
-	_draw_brand(Vector2(66.0, 48.0), false)
-	draw_string(fallback_font, Vector2(66.0, 168.0), "TABLA DE PUNTUACIONES", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, COLOR_LIGHT)
-	draw_string(fallback_font, Vector2(66.0, 154.0), "ARRIBA / ABAJO cambia de nivel", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#778bbd"))
-	draw_string(fallback_font, Vector2(viewport_size.x - 280.0, 154.0), str(level.title), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 17, Color("#ffc857"))
-
+	_t(Vector2(vs.x - 56.0 - 420.0, 138.0), str(level.title), 20, COLOR_YELLOW, HORIZONTAL_ALIGNMENT_RIGHT, 420.0)
 	var level_scores: Array = []
 	for entry in scores:
 		if int(entry.level) == selected_level:
 			level_scores.append(entry)
 	level_scores.sort_custom(_sort_score_entries)
-	var panel := Rect2((viewport_size.x - 760.0) * 0.5, 180.0, 760.0, 390.0)
-	draw_rect(panel, Color("#101a36"))
-	draw_rect(panel, Color("#536aa5"), false, 2.0)
+	var panel := Rect2((vs.x - 760.0) * 0.5, 170.0, 760.0, 410.0)
+	_panel(panel, COLOR_YELLOW)
+	var medals := [COLOR_YELLOW, Color("#CBD5E1"), Color("#D97706")]
 	for row in range(10):
-		var y := panel.position.y + 42.0 + row * 32.0
+		var y := panel.position.y + 56.0 + float(row) * 34.0
 		if row % 2 == 0:
-			draw_rect(Rect2(panel.position.x + 2.0, y - 23.0, panel.size.x - 4.0, 32.0), Color(0.20, 0.25, 0.42, 0.18))
+			_rrect(Rect2(panel.position.x + 14.0, y - 24.0, panel.size.x - 28.0, 32.0), 8.0, Color(1.0, 1.0, 1.0, 0.035))
 		if row < level_scores.size():
 			var entry: Dictionary = level_scores[row]
-			draw_string(fallback_font, Vector2(panel.position.x + 28.0, y), "%02d" % (row + 1), HORIZONTAL_ALIGNMENT_LEFT, 35.0, 16, Color("#7f94ca"))
-			draw_string(fallback_font, Vector2(panel.position.x + 90.0, y), str(entry.name), HORIZONTAL_ALIGNMENT_LEFT, 310.0, 17, Color.WHITE)
-			draw_string(fallback_font, Vector2(panel.position.x + 470.0, y), "%07d" % int(entry.score), HORIZONTAL_ALIGNMENT_LEFT, 120.0, 17, Color("#ffc857"))
-			draw_string(fallback_font, Vector2(panel.position.x + 620.0, y), "%.1f%%" % float(entry.accuracy), HORIZONTAL_ALIGNMENT_LEFT, 90.0, 15, Color("#8fffd6"))
+			var rank_color: Color = medals[row] if row < 3 else COLOR_MUTED
+			_t(Vector2(panel.position.x + 34.0, y), "%02d" % (row + 1), 17, rank_color)
+			_t(Vector2(panel.position.x + 96.0, y), str(entry.name), 18, COLOR_WHITE)
+			_t(Vector2(panel.position.x + 430.0, y), "%07d" % int(entry.score), 18, COLOR_YELLOW)
+			_t(Vector2(panel.position.x + 600.0, y), "%.1f%%" % float(entry.accuracy), 16, COLOR_GREEN)
 		else:
-			draw_string(fallback_font, Vector2(panel.position.x + 90.0, y), "--", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 16, Color("#536383"))
-	draw_string(fallback_font, Vector2(66.0, viewport_size.y - 46.0), "T o ESC volver al menu", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
+			_t(Vector2(panel.position.x + 96.0, y), "--", 16, Color(COLOR_MUTED, 0.5))
+	var x := 56.0
+	x += _chip(Vector2(x, vs.y - 48.0), "ARR/ABA", "cambiar nivel")
+	x += _chip(Vector2(x, vs.y - 48.0), "T / ESC", "volver", COLOR_RED)
 
 
 func _draw_editor() -> void:
-	var viewport_size := get_viewport_rect().size
-	_draw_animated_background(viewport_size, menu_time)
-	_draw_brand(Vector2(48.0, 34.0), true)
-	draw_string(fallback_font, Vector2(180.0, 42.0), "LEVEL EDITOR", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 20, COLOR_WHITE)
+	var vs := get_viewport_rect().size
+	_draw_background(vs, menu_time, 0.0, COLOR_VIOLET, 0.15)
+	_draw_brand(Vector2(36.0, 44.0), true)
+	_t(Vector2(170.0, 42.0), "EDITOR DE NIVELES", 18, COLOR_WHITE)
 	var editor_level: Dictionary = levels[selected_level]
-	draw_string(fallback_font, Vector2(36.0, 64.0), str(editor_level.title) + "  /  " + str(editor_level.bpm_label), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#8296c9"))
+	_t(Vector2(36.0, 72.0), str(editor_level.title) + "   /   " + str(editor_level.bpm_label), 13, COLOR_MUTED)
 
 	var timeline := _editor_timeline_rect()
-	draw_rect(timeline, Color("#0b1227"))
-	draw_rect(timeline, Color("#536aa5"), false, 2.0)
+	_rrect(timeline, 10.0, Color("#060A1A"))
 	var lane_height := timeline.size.y / LANE_COUNT
 	for lane in range(LANE_COUNT):
 		var row := Rect2(timeline.position.x, timeline.position.y + lane * lane_height, timeline.size.x, lane_height)
-		if lane % 2 == 0:
-			draw_rect(row, Color(0.10, 0.16, 0.31, 0.32))
-		draw_line(row.position, Vector2(row.end.x, row.position.y), Color("#26385f"), 1.0)
-		draw_string(fallback_font, row.position + Vector2(12.0, lane_height * 0.5 + 6.0), LANE_KEYS[lane], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 17, LANE_COLORS[lane])
+		draw_rect(row, Color(LANE_COLORS[lane], 0.07 if lane % 2 == 0 else 0.03))
+		draw_line(row.position, Vector2(row.end.x, row.position.y), Color(1, 1, 1, 0.06), 1.0)
+		_t(row.position + Vector2(14.0, lane_height * 0.5 + 6.0), LANE_KEYS[lane], 18, LANE_COLORS[lane])
+	_rrect_line(timeline, 10.0, Color(COLOR_VIOLET, 0.6), 1.5)
 
 	var view_length := 12.0
 	var view_start := clampf(editor_time - 4.0, 0.0, maxf(0.0, song_length - view_length))
@@ -1633,11 +1897,13 @@ func _draw_editor() -> void:
 		var beat_time := current_song_offset + float(beat_index) * current_beat
 		if beat_time < 0.0 or beat_time > song_length:
 			continue
-		var x := timeline.position.x + (beat_time - view_start) / view_length * timeline.size.x
+		var bx := timeline.position.x + (beat_time - view_start) / view_length * timeline.size.x
+		if bx < timeline.position.x or bx > timeline.end.x:
+			continue
 		var strong := beat_index % 4 == 0
-		draw_line(Vector2(x, timeline.position.y), Vector2(x, timeline.end.y), Color(0.62, 0.72, 0.94, 0.36 if strong else 0.16), 2.0 if strong else 1.0)
+		draw_line(Vector2(bx, timeline.position.y), Vector2(bx, timeline.end.y), Color(0.7, 0.8, 1.0, 0.34 if strong else 0.12), 2.0 if strong else 1.0)
 		if strong:
-			draw_string(fallback_font, Vector2(x + 5.0, timeline.position.y - 8.0), "BAR %02d" % int(beat_index / 4 + 1), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 11, Color("#8296c9"))
+			_t(Vector2(bx + 5.0, timeline.position.y - 8.0), "COMPAS %02d" % int(beat_index / 4 + 1), 11, COLOR_MUTED)
 
 	for note in chart:
 		var note_time: float = float(note.time)
@@ -1646,300 +1912,395 @@ func _draw_editor() -> void:
 		var note_x := timeline.position.x + (note_time - view_start) / view_length * timeline.size.x
 		var lane := int(note.lane)
 		var note_y := timeline.position.y + lane_height * (lane + 0.5)
-		draw_rect(Rect2(note_x - 6.0, note_y - 15.0, 12.0, 30.0), LANE_COLORS[lane])
-		draw_rect(Rect2(note_x - 3.0, note_y - 11.0, 6.0, 22.0), Color(1, 1, 1, 0.44))
+		_glow(Vector2(note_x, note_y), 22.0, LANE_COLORS[lane], 0.8)
+		_rrect(Rect2(note_x - 7.0, note_y - 16.0, 14.0, 32.0), 5.0, LANE_COLORS[lane])
+		_rrect(Rect2(note_x - 3.0, note_y - 11.0, 6.0, 22.0), 3.0, Color(1, 1, 1, 0.5))
 
 	var cursor_x := timeline.position.x + (editor_time - view_start) / view_length * timeline.size.x
-	draw_line(Vector2(cursor_x, timeline.position.y - 18.0), Vector2(cursor_x, timeline.end.y + 5.0), Color("#fff4a3"), 3.0)
+	draw_line(Vector2(cursor_x, timeline.position.y - 16.0), Vector2(cursor_x, timeline.end.y + 5.0), COLOR_WHITE, 2.0)
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(cursor_x - 7.0, timeline.position.y - 18.0),
 		Vector2(cursor_x + 7.0, timeline.position.y - 18.0),
-		Vector2(cursor_x, timeline.position.y - 7.0)
-	]), Color("#fff4a3"))
+		Vector2(cursor_x, timeline.position.y - 6.0)
+	]), COLOR_WHITE)
 
-	draw_string(fallback_font, Vector2(72.0, 126.0), "TIMELINE  %.2f s / %.2f s" % [editor_time, song_length], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, Color("#d8e2ff"))
-	draw_string(fallback_font, Vector2(viewport_size.x - 320.0, 126.0), "NOTAS  %03d" % chart.size(), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, Color("#8fffd6"))
-	draw_string(fallback_font, Vector2(72.0, 530.0), "Click izquierdo: colocar/quitar    Click derecho: borrar    Click central: mover cursor", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, Color("#a9b8df"))
-	draw_string(fallback_font, Vector2(72.0, 562.0), "ESPACIO %s    1 negras    2 corcheas    3 semicorcheas" % ("PAUSAR" if editor_playing else "REPRODUCIR"), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
-	draw_string(fallback_font, Vector2(72.0, 588.0), "S guardar    L cargar    [ retrasar    ] adelantar    ENTER probar    ESC menu", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, Color("#8296c9"))
-	draw_string(fallback_font, Vector2(72.0, 635.0), editor_message, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 15, Color("#ffc857"))
+	_t(Vector2(72.0, 140.0), "%.2f s / %.2f s" % [editor_time, song_length], 20, COLOR_WHITE)
+	_t(Vector2(vs.x - 72.0 - 300.0, 140.0), "NOTAS  %03d" % chart.size(), 20, COLOR_GREEN, HORIZONTAL_ALIGNMENT_RIGHT, 300.0)
+	_t(Vector2(72.0, 530.0), "Click izq: colocar/quitar    Click der: borrar    Click central: mover cursor", 13, COLOR_MUTED)
+	_t(Vector2(72.0, 560.0), "ESPACIO %s    1 negras    2 corcheas    3 semicorcheas    [ ] mover todo el chart" % ("PAUSAR" if editor_playing else "REPRODUCIR"), 13, COLOR_MUTED)
+	_t(Vector2(72.0, 620.0), editor_message, 16, COLOR_YELLOW)
 	_draw_action_button(Rect2(72.0, 652.0, 160.0, 38.0), "ESPACIO  PLAY", COLOR_GREEN)
-	_draw_action_button(Rect2(242.0, 652.0, 160.0, 38.0), "S  GUARDAR", COLOR_BLUE)
+	_draw_action_button(Rect2(242.0, 652.0, 160.0, 38.0), "S  GUARDAR", COLOR_ACCENT)
 	_draw_action_button(Rect2(412.0, 652.0, 190.0, 38.0), "[ ]  MOVER TILES", COLOR_ORANGE)
 	_draw_action_button(Rect2(612.0, 652.0, 190.0, 38.0), "ENTER  PROBAR", COLOR_VIOLET)
+	_draw_action_button(Rect2(812.0, 652.0, 130.0, 38.0), "ESC  MENU", COLOR_RED)
+
+
+# ---------------------------------------------------------------------------
+# Gameplay
+# ---------------------------------------------------------------------------
+
+func _persp(progress: float) -> float:
+	return pow(clampf(progress, 0.0, 1.5), 1.35)
+
+
+func _y_at(progress: float) -> float:
+	return lerpf(SPAWN_Y, JUDGEMENT_Y, _persp(progress))
+
+
+func _span_at_y(y: float) -> Vector2:
+	# Returns (left x, width) of the highway at the given screen height.
+	var f := clampf((y - SPAWN_Y) / (g_bottom - SPAWN_Y), 0.0, 1.3)
+	var width := lerpf(g_top_w, g_width, f)
+	return Vector2(g_left + (g_width - width) * 0.5, width)
+
+
+func _lane_point(edge: float, y: float) -> Vector2:
+	var span := _span_at_y(y)
+	return Vector2(span.x + span.y * edge / float(LANE_COUNT), y)
 
 
 func _draw_game() -> void:
-	var viewport_size := get_viewport_rect().size
-	var field_width := minf(760.0, viewport_size.x - 48.0)
-	var field_left := (viewport_size.x - field_width) * 0.5
-	var top_width := field_width * HIGHWAY_TOP_RATIO
-	var highway_bottom := JUDGEMENT_Y + 36.0
+	var vs := get_viewport_rect().size
+	g_width = minf(640.0, vs.x - 48.0)
+	g_left = (vs.x - g_width) * 0.5
+	g_top_w = g_width * HIGHWAY_TOP_RATIO
+	g_bottom = JUDGEMENT_Y + 46.0
+	var tier := _streak_tier_for(combo)
+	var tier_color: Color = TIER_COLORS[tier]
+	var energy := clampf(float(combo) / 64.0, 0.0, 1.0)
+	var pulse := _beat_pulse(maxf(0.0, song_time)) if song_time >= 0.0 else 0.0
 
-	_draw_animated_background(viewport_size, maxf(0.0, song_time))
-	_draw_side_flash(viewport_size)
-	_draw_header(viewport_size)
+	_draw_background(vs, maxf(0.0, song_time), pulse, tier_color, energy)
+	_draw_side_flash(vs)
+	_draw_highway(vs, tier_color, energy, pulse)
+	_draw_notes(vs, tier, tier_color, energy)
+	_draw_receptors(tier, tier_color, energy, pulse)
+	_draw_hit_effects(g_left, g_width)
+	_draw_hud(vs, tier_color)
+	_draw_streak_aura(vs, g_left, g_width)
 
-	# The highway narrows toward the stage, leaving the upper area free for a
-	# future animated video or character backdrop.
-	var highway := PackedVector2Array([
-		Vector2(field_left + (field_width - top_width) * 0.5, SPAWN_Y),
-		Vector2(field_left + (field_width + top_width) * 0.5, SPAWN_Y),
-		Vector2(field_left + field_width, highway_bottom),
-		Vector2(field_left, highway_bottom)
-	])
-	draw_colored_polygon(highway, Color("#0B1224"))
-	_draw_streak_aura(viewport_size, field_left, field_width)
-	var current_tier := _streak_tier_for(combo)
-	var streak_color: Color = [COLOR_BLUE, COLOR_GREEN, COLOR_YELLOW, COLOR_ORANGE, COLOR_VIOLET][current_tier]
-	var streak_energy := clampf(float(combo) / 64.0, 0.0, 1.0)
+	# Combo watermark inside the highway.
+	if combo >= 3 and not level_finished:
+		var combo_size := 76 + int(streak_pulse * 22.0)
+		_t(Vector2(g_left, 345.0), str(combo), combo_size, Color(tier_color, 0.16 + streak_pulse * 0.22), HORIZONTAL_ALIGNMENT_CENTER, g_width)
+		_t(Vector2(g_left, 372.0), "COMBO", 16, Color(COLOR_WHITE, 0.30), HORIZONTAL_ALIGNMENT_CENTER, g_width)
 
-	for row in range(9):
-		var progress := float(row) / 8.0
-		var y := lerpf(SPAWN_Y, highway_bottom, progress)
-		var width_at := lerpf(top_width, field_width, progress)
-		var left_at := field_left + (field_width - width_at) * 0.5
-		var grid_alpha := 0.32 + streak_energy * 0.22
-		draw_line(Vector2(left_at, y), Vector2(left_at + width_at, y), Color(streak_color, grid_alpha), 1.0 + streak_energy)
+	if song_time < 0.0:
+		var seconds := int(ceil(-song_time))
+		var countdown := str(seconds)
+		var local := fmod(-song_time, 1.0)
+		if song_time > -0.15:
+			countdown = "GO!"
+		var count_size := 70 + int(local * 36.0)
+		_t(Vector2(g_left, 400.0), countdown, count_size, COLOR_WHITE, HORIZONTAL_ALIGNMENT_CENTER, g_width)
+	elif feedback_timer > 0.0:
+		var f_size := 26 + int(feedback_timer * 18.0)
+		_t(Vector2(g_left, 262.0), feedback_text, f_size, Color(feedback_color, minf(1.0, feedback_timer * 5.0)), HORIZONTAL_ALIGNMENT_CENTER, g_width)
 
+	if is_paused:
+		draw_rect(Rect2(Vector2.ZERO, vs), Color(0.01, 0.02, 0.06, 0.82))
+		_t(Vector2(0.0, 300.0), "PAUSA", 58, COLOR_WHITE, HORIZONTAL_ALIGNMENT_CENTER, vs.x)
+		_t(Vector2(0.0, 345.0), "Sincronia  %+d ms   (IZQ / DER ajusta)" % int(round(sync_calibration * 1000.0)), 18, COLOR_ACCENT, HORIZONTAL_ALIGNMENT_CENTER, vs.x)
+		_t(Vector2(0.0, 380.0), "Si las notas llegan tarde respecto al sonido, baja el valor; si llegan antes, subelo.", 13, COLOR_MUTED, HORIZONTAL_ALIGNMENT_CENTER, vs.x)
+		var x := vs.x * 0.5 - 200.0
+		x += _chip(Vector2(x, 420.0), "ESPACIO", "continuar", COLOR_GREEN)
+		x += _chip(Vector2(x, 420.0), "R", "reiniciar", COLOR_ORANGE)
+		x += _chip(Vector2(x, 420.0), "ESC", "menu", COLOR_RED)
+
+	if level_finished:
+		_draw_results(vs)
+	elif streak_announcement_timer > 0.0 and not is_paused:
+		_draw_streak_announcement(vs)
+
+
+func _draw_highway(vs: Vector2, tier_color: Color, energy: float, pulse: float) -> void:
+	var top_left := _lane_point(0.0, SPAWN_Y)
+	var top_right := _lane_point(float(LANE_COUNT), SPAWN_Y)
+	var bottom_left := _lane_point(0.0, g_bottom)
+	var bottom_right := _lane_point(float(LANE_COUNT), g_bottom)
+	# Outer glow for the whole road.
+	for layer in range(4):
+		var spread := 10.0 + float(layer) * 9.0
+		draw_colored_polygon(PackedVector2Array([
+			top_left + Vector2(-spread * 0.4, 0.0), top_right + Vector2(spread * 0.4, 0.0),
+			bottom_right + Vector2(spread, 0.0), bottom_left + Vector2(-spread, 0.0)
+		]), Color(tier_color, 0.025 + energy * 0.02 + pulse * 0.012))
+	# Road surface.
+	draw_polygon(
+		PackedVector2Array([top_left, top_right, bottom_right, bottom_left]),
+		PackedColorArray([Color("#070B1C", 0.55), Color("#070B1C", 0.55), Color("#0E1632", 0.94), Color("#0E1632", 0.94)])
+	)
+	# Lane tints and press highlights.
+	for lane in range(LANE_COUNT):
+		var color: Color = LANE_COLORS[lane]
+		var press: float = clampf(lane_flash[lane] / 0.14, 0.0, 1.0)
+		var tint_alpha := 0.04 if lane % 2 == 0 else 0.015
+		var tl := _lane_point(float(lane), SPAWN_Y)
+		var tr := _lane_point(float(lane + 1), SPAWN_Y)
+		var br := _lane_point(float(lane + 1), g_bottom)
+		var bl := _lane_point(float(lane), g_bottom)
+		draw_polygon(
+			PackedVector2Array([tl, tr, br, bl]),
+			PackedColorArray([Color(color, 0.0), Color(color, 0.0), Color(color, tint_alpha + press * 0.40), Color(color, tint_alpha + press * 0.40)])
+		)
+	# Beat and bar lines that scroll with the music, exactly like the notes.
+	if song_time > -TRAVEL_TIME:
+		var first_beat := int(floor((song_time - current_song_offset) / current_beat)) + 1
+		for beat in range(first_beat - 1, first_beat + int(TRAVEL_TIME / current_beat) + 2):
+			var beat_time := current_song_offset + float(beat) * current_beat
+			var progress := 1.0 - (beat_time - song_time) / TRAVEL_TIME
+			if progress < 0.0 or progress > 1.05 or beat_time < 0.0:
+				continue
+			var y := _y_at(progress)
+			var span := _span_at_y(y)
+			var is_bar := beat % 4 == 0
+			var alpha := (0.30 if is_bar else 0.11) * minf(1.0, progress * 3.0)
+			draw_line(Vector2(span.x, y), Vector2(span.x + span.y, y), Color(COLOR_WHITE, alpha), 2.0 if is_bar else 1.0)
+	# Lane dividers and glowing edges.
 	for lane in range(1, LANE_COUNT):
-		var top_x := field_left + (field_width - top_width) * 0.5 + top_width * float(lane) / LANE_COUNT
-		var bottom_x := field_left + field_width * float(lane) / LANE_COUNT
-		draw_line(Vector2(top_x, SPAWN_Y), Vector2(bottom_x, highway_bottom), Color("#334B78"), 2.0)
+		draw_line(_lane_point(float(lane), SPAWN_Y), _lane_point(float(lane), g_bottom), Color(COLOR_WHITE, 0.10), 1.5)
+	var edge_color := COLOR_ACCENT.lerp(tier_color, energy)
+	draw_line(top_left, bottom_left, Color(edge_color, 0.25), 7.0)
+	draw_line(top_right, bottom_right, Color(edge_color, 0.25), 7.0)
+	draw_line(top_left, bottom_left, edge_color, 2.5)
+	draw_line(top_right, bottom_right, edge_color, 2.5)
+	# Fade the far end into the background.
+	draw_polygon(
+		PackedVector2Array([top_left + Vector2(-20.0, -4.0), top_right + Vector2(20.0, -4.0), top_right + Vector2(60.0, 140.0), top_left + Vector2(-60.0, 140.0)]),
+		PackedColorArray([Color("#04060F", 1.0), Color("#04060F", 1.0), Color("#04060F", 0.0), Color("#04060F", 0.0)])
+	)
 
-	var left_top := field_left + (field_width - top_width) * 0.5
-	var right_top := left_top + top_width
-	draw_line(Vector2(left_top, SPAWN_Y), Vector2(field_left, highway_bottom), COLOR_BLUE.lerp(streak_color, streak_energy), 3.0 + streak_energy * 2.0)
-	draw_line(Vector2(right_top, SPAWN_Y), Vector2(field_left + field_width, highway_bottom), COLOR_VIOLET.lerp(streak_color, streak_energy), 3.0 + streak_energy * 2.0)
 
-	# Notes use the same perspective interpolation as the highway lines.
-	for note in active_notes:
-		if note.hit or note.missed:
+func _draw_notes(_vs: Vector2, tier: int, tier_color: Color, energy: float) -> void:
+	var index := active_notes.size() - 1
+	while index >= 0:
+		var note: Dictionary = active_notes[index]
+		index -= 1
+		if note.hit:
 			continue
 		var note_time: float = float(note.time)
 		var progress := 1.0 - (note_time - song_time) / TRAVEL_TIME
-		var y := lerpf(SPAWN_Y, JUDGEMENT_Y, progress)
-		if y < SPAWN_Y - 35.0 or y > viewport_size.y + 30.0:
+		if progress < 0.0:
+			continue
+		var y := _y_at(progress)
+		if y > get_viewport_rect().size.y + 40.0:
 			continue
 		var lane := int(note.lane)
-		var width_at := lerpf(top_width, field_width, clampf(progress, 0.0, 1.0))
-		var lane_width := width_at / LANE_COUNT
-		var center_x := field_left + (field_width - width_at) * 0.5 + lane_width * (lane + 0.5)
-		var note_width := lane_width * 0.72
-		var note_height := lerpf(10.0, 26.0, clampf(progress, 0.0, 1.0))
-		var gem := PackedVector2Array([
-			Vector2(center_x - note_width * 0.5, y),
-			Vector2(center_x - note_width * 0.30, y - note_height * 0.5),
-			Vector2(center_x + note_width * 0.30, y - note_height * 0.5),
-			Vector2(center_x + note_width * 0.5, y),
-			Vector2(center_x + note_width * 0.30, y + note_height * 0.5),
-			Vector2(center_x - note_width * 0.30, y + note_height * 0.5)
-		])
-		var shadow_gem := PackedVector2Array()
-		for point in gem:
-			shadow_gem.append(point + Vector2(0.0, 4.0))
-		draw_colored_polygon(shadow_gem, Color(0, 0, 0, 0.40))
-		draw_colored_polygon(gem, LANE_COLORS[lane])
-		if current_tier > 0:
-			for edge in range(gem.size()):
-				draw_line(gem[edge], gem[(edge + 1) % gem.size()], Color(streak_color, 0.36 + streak_energy * 0.54), 1.0 + current_tier * 0.45)
-		draw_line(Vector2(center_x - note_width * 0.28, y - note_height * 0.25), Vector2(center_x + note_width * 0.28, y - note_height * 0.25), Color(1, 1, 1, 0.60), 2.0)
+		var span := _span_at_y(y)
+		var lane_width := span.y / float(LANE_COUNT)
+		var center_x := span.x + lane_width * (float(lane) + 0.5)
+		var f := clampf((y - SPAWN_Y) / (g_bottom - SPAWN_Y), 0.0, 1.2)
+		var note_width := lane_width * 0.80
+		var note_height := lerpf(9.0, 30.0, minf(f, 1.0))
+		var color: Color = LANE_COLORS[lane]
+		var missed: bool = note.missed
+		if missed:
+			color = Color("#475069")
+		var rect := Rect2(center_x - note_width * 0.5, y - note_height * 0.5, note_width, note_height)
+		if not missed:
+			_glow(Vector2(center_x, y), note_width * 0.62, color, 0.9 + energy)
+		_rrect(Rect2(rect.position + Vector2(0.0, 4.0), rect.size), note_height * 0.45, Color(0, 0, 0, 0.45))
+		_rrect(rect, note_height * 0.45, color)
+		if not missed:
+			var shine := Rect2(rect.position.x + note_width * 0.10, rect.position.y + note_height * 0.12, note_width * 0.80, note_height * 0.36)
+			_rrect(shine, note_height * 0.18, Color(1, 1, 1, 0.42))
+			_rrect_line(rect, note_height * 0.45, Color(COLOR_WHITE, 0.55), 1.2)
+			if tier > 0:
+				_rrect_line(rect.grow(2.0), note_height * 0.5, Color(tier_color, 0.35 + energy * 0.5), 1.5)
 
-	# Receptors sit at the wide end of the highway.
-	var receptor_lane_width := field_width / LANE_COUNT
-	draw_rect(Rect2(field_left - 22.0, JUDGEMENT_Y - 25.0, field_width + 44.0, 74.0), COLOR_PANEL)
-	draw_rect(Rect2(field_left - 22.0, JUDGEMENT_Y - 25.0, field_width + 44.0, 74.0), COLOR_VIOLET, false, 2.0)
-	draw_line(Vector2(field_left - 8.0, JUDGEMENT_Y + 28.0), Vector2(field_left + field_width + 8.0, JUDGEMENT_Y + 28.0), Color("#334155"), 2.0)
-	var line_color := COLOR_WHITE if pulse_timer > 0.0 else COLOR_BLUE
-	draw_line(Vector2(field_left - 10.0, JUDGEMENT_Y), Vector2(field_left + field_width + 10.0, JUDGEMENT_Y), line_color, 3.0)
+
+func _draw_receptors(tier: int, tier_color: Color, energy: float, pulse: float) -> void:
+	var lane_width := g_width / float(LANE_COUNT)
+	# Hit bar.
+	var bar := Rect2(g_left - 14.0, JUDGEMENT_Y - 6.0, g_width + 28.0, 12.0)
+	_rrect(bar, 6.0, Color(COLOR_WHITE, 0.10 + pulse * 0.16))
+	draw_line(Vector2(g_left - 10.0, JUDGEMENT_Y), Vector2(g_left + g_width + 10.0, JUDGEMENT_Y), Color(COLOR_WHITE, 0.55 + pulse * 0.4), 2.0)
 	for lane in range(LANE_COUNT):
-		var center_x := field_left + receptor_lane_width * (lane + 0.5)
-		var press_amount: float = lane_flash[lane] / 0.14
-		var radius := minf(29.0, receptor_lane_width * 0.30) + press_amount * (8.0 + current_tier * 2.0)
-		var receptor_color: Color = LANE_COLORS[lane]
-		if lane_flash[lane] <= 0.0:
-			receptor_color = Color(receptor_color, 0.38 + streak_energy * 0.22)
-		draw_circle(Vector2(center_x, JUDGEMENT_Y), radius + 12.0 + streak_energy * 10.0, Color(receptor_color, 0.05 + streak_energy * 0.10 + press_amount * 0.10))
-		draw_circle(Vector2(center_x, JUDGEMENT_Y), radius, Color(0.03, 0.07, 0.16, 0.95))
-		draw_arc(Vector2(center_x, JUDGEMENT_Y), radius, 0.0, TAU, 28, receptor_color, 4.0)
-		if current_tier > 0:
-			var arc_start := fmod(shake_clock * (0.7 + current_tier * 0.22) + lane * 1.2, TAU)
-			draw_arc(Vector2(center_x, JUDGEMENT_Y), radius + 7.0, arc_start, arc_start + PI * 0.65, 18, Color(streak_color, 0.52 + streak_energy * 0.35), 2.0)
-		draw_circle(Vector2(center_x, JUDGEMENT_Y), radius * 0.30, receptor_color)
-		draw_string(fallback_font, Vector2(center_x - receptor_lane_width * 0.5, JUDGEMENT_Y + 56.0), LANE_KEYS[lane], HORIZONTAL_ALIGNMENT_CENTER, receptor_lane_width, 17, COLOR_WHITE)
-	_draw_hit_effects(field_left, field_width)
+		var center := Vector2(g_left + lane_width * (float(lane) + 0.5), JUDGEMENT_Y)
+		var color: Color = LANE_COLORS[lane]
+		var press: float = clampf(lane_flash[lane] / 0.14, 0.0, 1.0)
+		var radius := minf(31.0, lane_width * 0.32) + press * 6.0
+		_glow(center, radius * 2.6, color, 0.5 + press * 2.2 + energy * 0.6)
+		draw_circle(center, radius + 4.0, Color(0.0, 0.0, 0.0, 0.55))
+		draw_circle(center, radius, Color("#070B1C"))
+		draw_circle(center, radius * (0.55 + press * 0.45), Color(color, 0.25 + press * 0.65))
+		draw_arc(center, radius, 0.0, TAU, 40, Color(color, 0.55 + press * 0.45), 4.0)
+		if tier > 0:
+			var arc_start := fmod(shake_clock * (0.8 + float(tier) * 0.25) + float(lane) * 1.2, TAU)
+			draw_arc(center, radius + 7.0, arc_start, arc_start + PI * 0.7, 18, Color(tier_color, 0.45 + energy * 0.4), 2.0)
+		# Key cap.
+		var cap := Rect2(center.x - 22.0, JUDGEMENT_Y + 46.0, 44.0, 32.0)
+		_rrect(cap, 8.0, Color(color, 0.12 + press * 0.55))
+		_rrect_line(cap, 8.0, Color(color, 0.9), 1.5)
+		draw_string(fallback_font, Vector2(cap.position.x, cap.position.y + 23.0), LANE_KEYS[lane], HORIZONTAL_ALIGNMENT_CENTER, cap.size.x, 18, COLOR_WHITE)
 
-	if song_time < 0.0:
-		var countdown := str(ceil(-song_time))
-		if song_time > -0.15:
-			countdown = "GO"
-		draw_string(fallback_font, Vector2(field_left, 370.0), countdown, HORIZONTAL_ALIGNMENT_CENTER, field_width, 56, Color.WHITE)
-	elif feedback_timer > 0.0:
-		var feedback_size := 24 + int(feedback_timer * 8.0)
-		draw_string(fallback_font, Vector2(field_left, 520.0), feedback_text, HORIZONTAL_ALIGNMENT_CENTER, field_width, feedback_size, feedback_color)
 
-	if is_paused:
-		draw_rect(Rect2(field_left, SPAWN_Y, field_width, highway_bottom - SPAWN_Y), Color(0.02, 0.03, 0.08, 0.84))
-		draw_string(fallback_font, Vector2(field_left, 360.0), "PAUSA", HORIZONTAL_ALIGNMENT_CENTER, field_width, 42, Color.WHITE)
-		draw_string(fallback_font, Vector2(field_left, 397.0), "ESPACIO para continuar", HORIZONTAL_ALIGNMENT_CENTER, field_width, 16, Color("#a9b8df"))
+func _draw_hud(vs: Vector2, tier_color: Color) -> void:
+	# Song progress along the very top.
+	var progress := clampf(song_time / maxf(1.0, song_length), 0.0, 1.0)
+	draw_rect(Rect2(0.0, 0.0, vs.x, 4.0), Color(1, 1, 1, 0.08))
+	draw_rect(Rect2(0.0, 0.0, vs.x * progress, 4.0), COLOR_ACCENT)
 
-	if level_finished:
-		_draw_results(field_left, field_width)
-	elif streak_announcement_timer > 0.0 and not is_paused:
-		_draw_streak_announcement(viewport_size)
+	# Left panel: song info and life.
+	var left_x := 28.0
+	var panel_w := g_left - 56.0
+	_draw_brand(Vector2(left_x, 44.0), true)
+	var level: Dictionary = levels[selected_level]
+	var diff_color := _difficulty_color(str(level.difficulty))
+	_t(Vector2(left_x, 96.0), str(level.title), 16, COLOR_WHITE, HORIZONTAL_ALIGNMENT_LEFT, panel_w)
+	_t(Vector2(left_x, 116.0), str(level.subtitle), 12, COLOR_MUTED, HORIZONTAL_ALIGNMENT_LEFT, panel_w)
+	_badge(Vector2(left_x, 130.0), str(level.difficulty), diff_color)
+	# Life bar (vertical).
+	var life_rect := Rect2(left_x, 200.0, 18.0, 330.0)
+	_rrect(life_rect, 8.0, Color(1, 1, 1, 0.07))
+	var life_ratio := clampf(life / MAX_LIFE, 0.0, 1.0)
+	var life_color := Color("#34D399") if life > 35.0 else Color("#F43F5E")
+	if life_ratio > 0.0:
+		var fill_h := life_rect.size.y * life_ratio
+		_rrect(Rect2(life_rect.position.x, life_rect.end.y - fill_h, life_rect.size.x, fill_h), 8.0, life_color)
+	_rrect_line(life_rect, 8.0, Color(COLOR_WHITE, 0.4), 1.2)
+	_t(Vector2(left_x + 28.0, 232.0), "VIDA", 12, COLOR_MUTED)
+	_t(Vector2(left_x + 28.0, 258.0), "%d" % int(life), 24, life_color)
+	_t(Vector2(left_x, vs.y - 28.0), "ESPACIO pausa  /  ESC menu  /  R reiniciar", 11, Color(COLOR_MUTED, 0.8))
+
+	# Right panel: score, combo, accuracy, counts.
+	var right_x := g_left + g_width + 36.0
+	var right_w := vs.x - right_x - 28.0
+	_t(Vector2(right_x, 56.0), "PUNTAJE", 12, COLOR_MUTED)
+	_t(Vector2(right_x, 94.0), "%07d" % score, 34, COLOR_WHITE, HORIZONTAL_ALIGNMENT_LEFT, right_w)
+	_t(Vector2(right_x, 150.0), "COMBO", 12, COLOR_MUTED)
+	_t(Vector2(right_x, 196.0), str(combo), 46, tier_color, HORIZONTAL_ALIGNMENT_LEFT, right_w)
+	_badge(Vector2(right_x, 212.0), "x%.2f" % _combo_multiplier(), tier_color)
+	# Streak meter toward the next tier.
+	var meter := Rect2(right_x, 250.0, right_w, 8.0)
+	_rrect(meter, 4.0, Color(1, 1, 1, 0.08))
+	_rrect(Rect2(meter.position, Vector2(maxf(8.0, meter.size.x * clampf(float(combo) / 64.0, 0.0, 1.0)), meter.size.y)), 4.0, tier_color)
+	for milestone in [8, 16, 32]:
+		var tick_x := meter.position.x + meter.size.x * float(milestone) / 64.0
+		draw_line(Vector2(tick_x, meter.position.y - 3.0), Vector2(tick_x, meter.end.y + 3.0), Color(COLOR_WHITE, 0.5), 1.0)
+	_t(Vector2(right_x, 300.0), "PRECISION", 12, COLOR_MUTED)
+	_t(Vector2(right_x, 330.0), "%.1f%%" % _accuracy_percent(), 24, COLOR_GREEN)
+	var rows := [["PERFECT", perfects, Color("#FDE68A")], ["GREAT", greats, Color("#6EE7B7")], ["GOOD", goods, Color("#93C5FD")], ["MISS", misses, Color("#FB7185")]]
+	for i in range(rows.size()):
+		var row_y := 380.0 + float(i) * 26.0
+		_t(Vector2(right_x, row_y), str(rows[i][0]), 12, rows[i][2])
+		_t(Vector2(right_x, row_y), str(rows[i][1]), 14, COLOR_WHITE, HORIZONTAL_ALIGNMENT_RIGHT, right_w)
+	if autoplay:
+		_t(Vector2(right_x, 520.0), "AUTOPLAY", 14, COLOR_ORANGE)
+	if tap_connected:
+		draw_circle(Vector2(right_x + 4.0, vs.y - 34.0), 4.0, COLOR_GREEN)
+		_t(Vector2(right_x + 14.0, vs.y - 29.0), "PAD", 11, COLOR_GREEN)
 
 
 func _draw_streak_aura(viewport_size: Vector2, field_left: float, field_width: float) -> void:
-	if combo < 4 and streak_pulse <= 0.0:
+	if combo < 8 and streak_pulse <= 0.0:
 		return
 	var tier := _streak_tier_for(combo)
 	var energy := maxf(clampf(float(combo) / 64.0, 0.0, 1.0), streak_pulse * 0.65)
-	var color: Color = [COLOR_BLUE, COLOR_GREEN, COLOR_YELLOW, COLOR_ORANGE, COLOR_VIOLET][tier]
+	var color: Color = TIER_COLORS[tier]
 	var orbit_time := shake_clock * (0.12 + energy * 0.10)
 	for side in range(2):
-		var x := field_left - 30.0 if side == 0 else field_left + field_width + 30.0
-		var center := Vector2(x, viewport_size.y * 0.56)
-		for ring in range(3):
-			var radius := 25.0 + ring * 14.0 + sin(orbit_time + ring) * (2.0 + streak_pulse * 4.0)
-			draw_arc(center, radius, orbit_time + ring * 1.7, orbit_time + ring * 1.7 + PI * 1.45, 28, Color(color, 0.16 + energy * 0.30), 1.5 + energy * 2.0)
-		for mote in range(4):
-			var angle := orbit_time * (1.0 if mote % 2 == 0 else -1.0) + float(mote) * TAU / 4.0
-			var point := center + Vector2.from_angle(angle) * (58.0 + 5.0 * sin(orbit_time * 2.0 + mote))
-			draw_circle(point, 2.0 + energy * 2.5, Color(color, 0.35 + energy * 0.55))
+		var x := field_left - 22.0 if side == 0 else field_left + field_width + 22.0
+		var center := Vector2(x, viewport_size.y * 0.70)
+		_glow(center, 60.0, color, 0.6 + energy)
+		for ring in range(2):
+			var radius := 16.0 + float(ring) * 11.0 + sin(orbit_time * 6.0 + float(ring)) * (1.5 + streak_pulse * 3.0)
+			draw_arc(center, radius, orbit_time * 5.0 + float(ring) * 1.7, orbit_time * 5.0 + float(ring) * 1.7 + PI * 1.45, 24, Color(color, 0.25 + energy * 0.4), 1.5 + energy * 1.5)
 
 
 func _draw_streak_announcement(viewport_size: Vector2) -> void:
-	var alpha := minf(1.0, streak_announcement_timer / 0.20)
+	var alpha := minf(1.0, streak_announcement_timer / 0.30)
+	var pop := 1.0 + maxf(0.0, streak_announcement_timer - 1.0) * 1.2
 	var tier_titles := ["", "LA LLAMA DESPIERTA", "RITUAL ENCADENADO", "MAMBO MISTICO", "LEYENDA VIVA"]
-	var tier_colors: Array = [COLOR_GREEN, COLOR_GREEN, COLOR_YELLOW, COLOR_ORANGE, COLOR_VIOLET]
-	var color: Color = tier_colors[streak_tier]
-	var panel_width := minf(650.0, viewport_size.x - 64.0)
-	var panel := Rect2((viewport_size.x - panel_width) * 0.5, viewport_size.y * 0.37, panel_width, 104.0)
-	draw_rect(panel, Color(COLOR_BACKGROUND, 0.86 * alpha))
-	draw_rect(panel, Color(color, 0.72 * alpha), false, 2.0)
-	draw_line(panel.position + Vector2(22.0, 8.0), Vector2(panel.end.x - 22.0, panel.position.y + 8.0), Color(COLOR_YELLOW, alpha * 0.8), 2.0)
-	draw_line(Vector2(panel.position.x + 22.0, panel.end.y - 8.0), panel.end - Vector2(22.0, 8.0), Color(COLOR_VIOLET, alpha * 0.8), 2.0)
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 43.0), "RACHA  x%d" % streak_announcement_combo, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 18, Color(COLOR_YELLOW, alpha))
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 78.0), tier_titles[streak_tier], HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 30, Color(color, alpha))
-	var flare := 0.3 + streak_pulse * 0.7
-	for side in range(2):
-		var x := panel.position.x + 30.0 if side == 0 else panel.end.x - 30.0
-		var y := panel.position.y + panel.size.y * 0.5
-		draw_circle(Vector2(x, y), 4.0 + flare * 5.0, Color(color, alpha * 0.28))
-		draw_arc(Vector2(x, y), 12.0 + flare * 8.0, shake_clock, shake_clock + TAU * 0.75, 20, Color(color, alpha), 2.0)
+	var color: Color = TIER_COLORS[streak_tier]
+	var cy := viewport_size.y * 0.30
+	_glow(Vector2(viewport_size.x * 0.5, cy), 260.0, color, 1.6 * alpha)
+	draw_line(Vector2(viewport_size.x * 0.5 - 220.0, cy - 40.0), Vector2(viewport_size.x * 0.5 + 220.0, cy - 40.0), Color(color, alpha * 0.8), 2.0)
+	_t(Vector2(0.0, cy - 14.0), "RACHA  x%d" % streak_announcement_combo, int(20.0 * pop), Color(COLOR_WHITE, alpha), HORIZONTAL_ALIGNMENT_CENTER, viewport_size.x)
+	_t(Vector2(0.0, cy + 30.0), tier_titles[streak_tier], int(38.0 * pop), Color(color, alpha), HORIZONTAL_ALIGNMENT_CENTER, viewport_size.x)
+	draw_line(Vector2(viewport_size.x * 0.5 - 220.0, cy + 52.0), Vector2(viewport_size.x * 0.5 + 220.0, cy + 52.0), Color(color, alpha * 0.8), 2.0)
 
 
 func _draw_hit_effects(field_left: float, field_width: float) -> void:
-	var lane_width := field_width / LANE_COUNT
+	var lane_width := field_width / float(LANE_COUNT)
 	for effect in hit_effects:
 		var progress: float = float(effect.elapsed) / HIT_EFFECT_DURATION
 		var alpha := 1.0 - progress
 		var lane := int(effect.lane)
 		var tier := _streak_tier_for(int(effect.get("combo", 0)))
-		var center := Vector2(field_left + lane_width * (lane + 0.5), JUDGEMENT_Y)
-		var radius := 28.0 + progress * (82.0 + tier * 14.0)
-		var color: Color = effect.color
-		if tier > 0:
-			color = color.lerp([COLOR_GREEN, COLOR_YELLOW, COLOR_ORANGE, COLOR_VIOLET][mini(tier - 1, 3)], 0.25 + float(tier) * 0.10)
-		draw_arc(center, radius, 0.0, TAU, 36, Color(color, alpha), 4.0 - progress * 2.0 + tier * 0.4)
-		if tier >= 2:
-			draw_arc(center, radius * 0.72, -progress * TAU, -progress * TAU + PI * 1.3, 32, Color(color, alpha * 0.78), 2.0)
-		draw_circle(center, 8.0 + (1.0 - progress) * 12.0, Color(color, alpha * 0.28))
-		var ray_count := 8 + tier * 4
+		var center := Vector2(field_left + lane_width * (float(lane) + 0.5), JUDGEMENT_Y)
+		var radius := 24.0 + progress * (70.0 + float(tier) * 12.0)
+		var color: Color = LANE_COLORS[lane].lerp(effect.color, 0.45)
+		if str(effect.text) == "BAD":
+			color = Color("#FB7185")
+		elif tier > 0:
+			color = color.lerp(TIER_COLORS[tier], 0.3)
+		_glow(center, radius * 1.4, color, alpha * 2.0)
+		draw_arc(center, radius, 0.0, TAU, 40, Color(color, alpha), 4.0 - progress * 3.0)
+		draw_arc(center, radius * 0.6, 0.0, TAU, 32, Color(COLOR_WHITE, alpha * 0.6), 2.0)
+		var ray_count := 10 + tier * 3
 		for ray in range(ray_count):
-			var angle := TAU * float(ray) / float(ray_count) + progress * 0.18
-			var ray_start := center + Vector2.from_angle(angle) * (radius * 0.72)
-			var ray_end := center + Vector2.from_angle(angle) * (radius + 13.0 + tier * 4.0)
-			draw_line(ray_start, ray_end, Color(color, alpha * 0.72), 2.0 + tier * 0.35)
-			if tier >= 2 and ray % 2 == 0:
-				draw_circle(ray_end, 1.5 + alpha * 1.5, Color(COLOR_WHITE, alpha * 0.85))
-		var text_y := JUDGEMENT_Y - 48.0 - progress * 32.0
-		var text_size := 14 + int((1.0 - progress) * 5.0)
-		draw_string(fallback_font, Vector2(center.x - lane_width * 0.5, text_y), str(effect.text), HORIZONTAL_ALIGNMENT_CENTER, lane_width, text_size, Color(color, alpha))
+			var angle := TAU * float(ray) / float(ray_count) + float(lane) * 0.4
+			var start_point := center + Vector2.from_angle(angle) * (radius * 0.8)
+			var end_point := center + Vector2.from_angle(angle) * (radius * 0.8 + 14.0 * alpha + 4.0)
+			draw_line(start_point, end_point, Color(color, alpha * 0.85), 2.0)
+		_t(Vector2(center.x - lane_width * 0.5, JUDGEMENT_Y - 52.0 - progress * 28.0), str(effect.text), 14 + int(alpha * 5.0), Color(color, alpha), HORIZONTAL_ALIGNMENT_CENTER, lane_width)
 
 
 func _draw_side_flash(viewport_size: Vector2) -> void:
 	if side_flash_timer <= 0.0:
 		return
-	var alpha := side_flash_timer / 0.30 * 0.24
+	var alpha := side_flash_timer / 0.30 * 0.30
 	var color := Color(side_flash_color, alpha)
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(0.0, 90.0),
-		Vector2(42.0, 90.0),
-		Vector2(78.0, viewport_size.y),
-		Vector2(0.0, viewport_size.y)
-	]), color)
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(viewport_size.x, 90.0),
-		Vector2(viewport_size.x - 42.0, 90.0),
-		Vector2(viewport_size.x - 78.0, viewport_size.y),
-		Vector2(viewport_size.x, viewport_size.y)
-	]), color)
+	var clear := Color(side_flash_color, 0.0)
+	draw_polygon(
+		PackedVector2Array([Vector2(0.0, 0.0), Vector2(240.0, 0.0), Vector2(240.0, viewport_size.y), Vector2(0.0, viewport_size.y)]),
+		PackedColorArray([color, clear, clear, color])
+	)
+	draw_polygon(
+		PackedVector2Array([Vector2(viewport_size.x - 240.0, 0.0), Vector2(viewport_size.x, 0.0), Vector2(viewport_size.x, viewport_size.y), Vector2(viewport_size.x - 240.0, viewport_size.y)]),
+		PackedColorArray([clear, color, color, clear])
+	)
 
 
-func _draw_animated_background(viewport_size: Vector2, animation_time: float) -> void:
-	draw_rect(Rect2(Vector2.ZERO, viewport_size), COLOR_BACKGROUND)
-	draw_rect(Rect2(0.0, 100.0, viewport_size.x, viewport_size.y - 100.0), Color("#111D35"))
-	var pulse := 0.5 + 0.5 * sin(animation_time * 2.0)
-	var center := Vector2(viewport_size.x * 0.72, viewport_size.y * 0.28)
-	draw_circle(center, 210.0 + pulse * 18.0, Color(COLOR_VIOLET, 0.035))
-	draw_circle(center, 125.0 + pulse * 10.0, Color(COLOR_BLUE, 0.045))
-	for ring in range(3):
-		var radius := 74.0 + ring * 27.0 + pulse * (3.0 + ring)
-		var rotation := animation_time * (0.06 if ring % 2 == 0 else -0.045)
-		draw_arc(center, radius, rotation, rotation + PI * (1.48 if ring % 2 == 0 else 1.22), 48, Color(COLOR_YELLOW if ring == 1 else COLOR_VIOLET, 0.09 + pulse * 0.025), 1.0 + ring * 0.35)
-	for mark in range(12):
-		var angle := TAU * float(mark) / 12.0 + animation_time * 0.035
-		var inner := center + Vector2.from_angle(angle) * 78.0
-		var outer := center + Vector2.from_angle(angle) * 89.0
-		draw_line(inner, outer, Color(COLOR_ORANGE, 0.14), 1.0)
-	for x in range(0, int(viewport_size.x) + 1, 48):
-		draw_line(Vector2(x, 100.0), Vector2(x, viewport_size.y), Color(0.20, 0.32, 0.52, 0.10), 1.0)
-	for y in range(116, int(viewport_size.y), 48):
-		draw_line(Vector2(0.0, y), Vector2(viewport_size.x, y), Color(0.20, 0.32, 0.52, 0.10), 1.0)
-	for index in range(7):
-		var x := 36.0 + index * 180.0
-		var height := 20.0 + fmod(animation_time * (8.0 + index), 42.0)
-		draw_line(Vector2(x, viewport_size.y - 36.0), Vector2(x, viewport_size.y - 36.0 - height), Color(COLOR_BLUE, 0.18), 3.0)
-		if index % 2 == 0:
-			draw_circle(Vector2(x, viewport_size.y - 36.0 - height), 3.0, Color(COLOR_GREEN, 0.60))
+func _grade_for(accuracy: float) -> String:
+	if accuracy >= 96.0:
+		return "S"
+	if accuracy >= 90.0:
+		return "A"
+	if accuracy >= 78.0:
+		return "B"
+	if accuracy >= 62.0:
+		return "C"
+	return "D"
 
 
-func _draw_header(viewport_size: Vector2) -> void:
-	_draw_brand(Vector2(48.0, 34.0), true)
-	var game_level: Dictionary = levels[selected_level]
-	draw_string(fallback_font, Vector2(36.0, 62.0), str(game_level.title) + "  /  " + str(game_level.bpm_label), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_LIGHT)
-	var accuracy := _accuracy_percent()
-	var streak_colors: Array = [COLOR_LIGHT, COLOR_GREEN, COLOR_YELLOW, COLOR_ORANGE, COLOR_VIOLET]
-	var current_tier := _streak_tier_for(combo)
-	draw_string(fallback_font, Vector2(viewport_size.x - 265.0, 36.0), "SCORE %07d" % score, HORIZONTAL_ALIGNMENT_LEFT, -1.0, 18, COLOR_WHITE)
-	draw_string(fallback_font, Vector2(viewport_size.x - 265.0, 59.0), "%d COMBO  x%.2f  %.1f%%" % [combo, _combo_multiplier(), accuracy], HORIZONTAL_ALIGNMENT_LEFT, -1.0, 14, streak_colors[current_tier])
-	var meter := Rect2(viewport_size.x * 0.5 - 108.0, 92.0, 216.0, 5.0)
-	draw_rect(meter, Color(COLOR_PANEL, 0.9))
-	draw_rect(Rect2(meter.position, Vector2(meter.size.x * clampf(float(combo) / 64.0, 0.0, 1.0), meter.size.y)), streak_colors[current_tier])
-	for milestone in [8, 16, 32, 64]:
-		var tick_x := meter.position.x + meter.size.x * float(milestone) / 64.0
-		draw_line(Vector2(tick_x, meter.position.y - 3.0), Vector2(tick_x, meter.end.y + 3.0), COLOR_WHITE, 1.0)
-	draw_string(fallback_font, Vector2(viewport_size.x - 265.0, 80.0), "VIDA %03d" % int(life), HORIZONTAL_ALIGNMENT_LEFT, -1.0, 11, COLOR_GREEN)
-	draw_rect(Rect2(viewport_size.x - 215.0, 70.0, 180.0, 12.0), Color("#0B1224"))
-	var life_color := COLOR_GREEN if life > 35.0 else COLOR_RED
-	draw_rect(Rect2(viewport_size.x - 215.0, 70.0, 180.0 * life / MAX_LIFE, 12.0), life_color)
-	draw_rect(Rect2(viewport_size.x - 215.0, 70.0, 180.0, 12.0), COLOR_LIGHT, false, 1.0)
-	draw_string(fallback_font, Vector2(34.0, viewport_size.y - 24.0), "D F J K / FLECHAS tocar    ESPACIO pausa    ESC menu    R reiniciar", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 13, COLOR_LIGHT)
-
-
-func _draw_results(field_left: float, field_width: float) -> void:
-	var panel := Rect2(field_left + 90.0, 205.0, field_width - 180.0, 290.0)
-	draw_rect(panel, COLOR_PANEL)
-	draw_rect(panel, COLOR_BLUE, false, 2.0)
-	var result_title := "GAME OVER" if game_over else "NIVEL COMPLETADO"
-	var result_color := COLOR_RED if game_over else COLOR_GREEN
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 54.0), result_title, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 30, result_color)
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 82.0), str(player_name), HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 14, COLOR_LIGHT)
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 102.0), "SCORE  %07d" % score, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 24, COLOR_YELLOW)
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 143.0), "PERFECT %d    GREAT %d    GOOD %d    MISS %d" % [perfects, greats, goods, misses], HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 15, COLOR_LIGHT)
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 185.0), "MAX COMBO  %d    ACCURACY  %.1f%%" % [max_combo, _accuracy_percent()], HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 17, COLOR_WHITE)
-	draw_string(fallback_font, Vector2(panel.position.x, panel.position.y + 238.0), "R reiniciar    ESC menu", HORIZONTAL_ALIGNMENT_CENTER, panel.size.x, 16, COLOR_GREEN)
+func _draw_results(vs: Vector2) -> void:
+	draw_rect(Rect2(Vector2.ZERO, vs), Color(0.01, 0.02, 0.06, 0.72))
+	var panel := Rect2((vs.x - 560.0) * 0.5, 130.0, 560.0, 440.0)
+	var accent := COLOR_RED if game_over else COLOR_GREEN
+	_glow(panel.position + panel.size * 0.5, 380.0, accent, 0.8)
+	_panel(panel, accent, 18.0)
+	_t(Vector2(panel.position.x, panel.position.y + 56.0), "GAME OVER" if game_over else "NIVEL COMPLETADO", 30, accent, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x)
+	_t(Vector2(panel.position.x, panel.position.y + 84.0), str(player_name), 14, COLOR_MUTED, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x)
+	var grade := _grade_for(_accuracy_percent())
+	var grade_color: Color = {"S": COLOR_YELLOW, "A": COLOR_GREEN, "B": COLOR_ACCENT, "C": COLOR_ORANGE, "D": COLOR_RED}[grade]
+	_glow(Vector2(panel.position.x + 110.0, panel.position.y + 190.0), 120.0, grade_color, 1.4)
+	_t(Vector2(panel.position.x + 40.0, panel.position.y + 235.0), grade, 130, grade_color, HORIZONTAL_ALIGNMENT_CENTER, 140.0)
+	_t(Vector2(panel.position.x + 200.0, panel.position.y + 140.0), "PUNTAJE", 12, COLOR_MUTED)
+	_t(Vector2(panel.position.x + 200.0, panel.position.y + 178.0), "%07d" % score, 36, COLOR_WHITE)
+	_t(Vector2(panel.position.x + 200.0, panel.position.y + 218.0), "PRECISION  %.1f%%" % _accuracy_percent(), 16, COLOR_GREEN)
+	_t(Vector2(panel.position.x + 200.0, panel.position.y + 244.0), "MAX COMBO  %d" % max_combo, 16, COLOR_WHITE)
+	var labels := [["PERFECT", perfects, Color("#FDE68A")], ["GREAT", greats, Color("#6EE7B7")], ["GOOD", goods, Color("#93C5FD")], ["MISS", misses, Color("#FB7185")]]
+	for i in range(labels.size()):
+		var x := panel.position.x + 40.0 + float(i) * 122.0
+		_rrect(Rect2(x, panel.position.y + 290.0, 110.0, 66.0), 10.0, Color(labels[i][2], 0.10))
+		_t(Vector2(x, panel.position.y + 316.0), str(labels[i][0]), 12, labels[i][2], HORIZONTAL_ALIGNMENT_CENTER, 110.0)
+		_t(Vector2(x, panel.position.y + 344.0), str(labels[i][1]), 22, COLOR_WHITE, HORIZONTAL_ALIGNMENT_CENTER, 110.0)
+	var cx := panel.position.x + 150.0
+	cx += _chip(Vector2(cx, panel.position.y + 392.0), "R", "reiniciar", COLOR_GREEN)
+	cx += _chip(Vector2(cx, panel.position.y + 392.0), "ESC", "menu", COLOR_RED)
 
 
 func _accuracy_percent() -> float:

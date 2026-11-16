@@ -19,6 +19,7 @@ Controles:
 - Carril 2: `F` o flecha abajo
 - Carril 3: `J` o flecha arriba
 - Carril 4: `K` o flecha derecha
+- `Izquierda/Derecha` en el menu o en pausa: ajusta la sincronia (+/-5 ms, se guarda)
 - `Espacio`: pausa
 - `R`: reiniciar el nivel
 - `Esc`: volver al menu
@@ -62,8 +63,7 @@ completamente vacio para que coloques las notas manualmente. Guarda con `S`; el
 nivel quedara registrado en `levels/custom_levels.json` y su chart se guardara
 en `levels/`.
 
-El nivel de prueba usa la cancion `This Love` de Maroon 5 a 95.10 BPM, con un
-offset inicial de 0.505 segundos detectado desde el audio. Las
+Las
 ventanas actuales son `Perfect` +/-60 ms, `Great` +/-110 ms y `Good` +/-180 ms.
 Los aciertos muestran una explosion en el receptor, hacen crecer el juicio en
 pantalla, reproducen un golpe de bateria y generan una vibracion breve con
@@ -112,12 +112,29 @@ sketch `arduino/pulsora_pad/pulsora_pad.ino` cuando tengas los sensores.
 
 ## Cancion actual
 
-El proyecto incluye tres canciones en `.mp3`: `This Love` de Maroon 5
-(Normal), `You're Gonna Go Far, Kid` de The Offspring (Hard) y `Hero` de
-Skillet (Expert). Cada una tiene BPM, offset y densidad de notas propios. El
+El proyecto incluye `You're Gonna Go Far, Kid` de The Offspring (Hard). El
 pack de samples de bateria se usa en los cuatro carriles, con volumen bajo para
 no tapar la cancion. Si el pack no carga, queda un sonido sintetico de respaldo.
 
 El nivel `PAD TEST` es una prueba corta de los cuatro sensores. Recorre
 `D/F/J/K` y no drena vida ni guarda puntuaciones. Por el cableado actual,
 `A3` activa `D`, `A2` activa `F`, `A0` activa `J` y `A1` activa `K`.
+
+## Sincronizacion
+
+El reloj del juego usa la posicion del audio mas el tiempo desde la ultima mezcla,
+menos la latencia de salida, suavizado con el delta de cada frame para evitar
+saltos. Cada pulsacion se marca con su momento real, no con el del ultimo frame.
+Si aun sientes las notas adelantadas o atrasadas respecto al sonido (por ejemplo
+con auriculares Bluetooth), ajusta la sincronia con `Izquierda/Derecha` en el menu.
+
+`tools/analyze_song.py` mide BPM y offset reales de un mp3 y puede generar un
+chart a partir de los golpes del audio (necesita `numpy` y `miniaudio`):
+
+```text
+py -3 tools/analyze_song.py cancion.mp3
+py -3 tools/analyze_song.py cancion.mp3 --chart levels/mi_chart.json --rank 2
+```
+
+Para probar sin manos:
+`godot --path . -- --autoplay --level=0` (un bot toca todas las notas).
