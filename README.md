@@ -93,8 +93,7 @@ En Ubuntu o Linux Mint, instala Python y pyserial con
 El Arduino envia los canales `1` a `4` a 9600 baudios y Python los reenvia a
 Godot por UDP local. El mapeo actual es `A3 -> D`, `A2 -> F`, `A0 -> J` y
 `A1 -> K`. El firmware filtra la vibracion: ignora golpes debiles (pulso corto),
-ignora cada pad mientras siga vibrando despues del primer golpe (se libera tras
-150 ms de calma, maximo 1 s). Los valores se ajustan al
+ignora cada pad 1 segundo despues de su primer golpe (`LOCKOUT_MS`). Los valores se ajustan al
 inicio de `pulsora_pad.ino`. Si
 hay varios puertos seriales conectados, ajusta `TAP_SERIAL_PORT` en
 `scripts/rhythm_game.gd` (por ejemplo, `COM3` en Windows). Cierra tambien

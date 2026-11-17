@@ -3,31 +3,21 @@
 // Envia los canales 1-4 por Serial a 9600 baudios para los carriles D/F/J/K.
 // Mapeo del cableado actual: A3 -> D, A2 -> F, A0 -> J, A1 -> K.
 //
-// Filtro anti-vibraciones fantasma (bloqueo adaptativo):
-// el PRIMER pulso de un pad se envia al instante. Despues ese pad se ignora
-// mientras siga vibrando: cada pulso que llega durante el bloqueo lo alarga.
-// El pad se libera cuando:
-//   - pasaron al menos MIN_LOCKOUT_MS desde el golpe, y
-//   - estuvo QUIET_MS sin ningun pulso (la vibracion se apago),
-// o cuando pasan MAX_LOCKOUT_MS (limite, por si el sensor se queda activo).
-// Asi, la vibracion fantasma (rafagas de pulsos seguidos) se descarta, pero
-// puedes volver a golpear apenas el pad se calma.
-// Cada pad tiene su propio bloqueo.
+// Filtro: el PRIMER pulso de un pad se envia al instante y despues ese pad se
+// ignora LOCKOUT_MS milisegundos, pase lo que pase. Pasado ese tiempo vuelve a
+// aceptar golpes, aunque el sensor siga activo. Cada pad tiene su propio bloqueo.
 //
-// Ajuste: si siguen entrando fantasmas, sube QUIET_MS (por ejemplo 250) o
-// MIN_LOCKOUT_MS. Si no puedes tocar rapido, baja QUIET_MS o MAX_LOCKOUT_MS.
+// Valor elegido: 1000 ms (1 segundo), el que funciono bien contra los fantasmas.
+// Si no puedes tocar rapido, bajalo; si entran fantasmas, subelo.
 
 const int PAD_COUNT = 4;
 const int PAD_PINS[PAD_COUNT] = {A3, A2, A0, A1};
 const int SERIAL_CHANNELS[PAD_COUNT] = {1, 2, 3, 4};
-const unsigned long MIN_LOCKOUT_MS = 120;
-const unsigned long QUIET_MS = 150;
-const unsigned long MAX_LOCKOUT_MS = 1000;
+const unsigned long LOCKOUT_MS = 1000;  // 1 segundo
 
 int idle_state[PAD_COUNT];
 bool locked[PAD_COUNT];
-unsigned long hit_time[PAD_COUNT];
-unsigned long last_active[PAD_COUNT];
+unsigned long locked_until[PAD_COUNT];
 
 void setup() {
 	pinMode(LED_BUILTIN, OUTPUT);
@@ -46,26 +36,18 @@ void loop() {
 	unsigned long now = millis();
 	bool any_locked = false;
 	for (int pad = 0; pad < PAD_COUNT; pad++) {
-		bool active = digitalRead(PAD_PINS[pad]) != idle_state[pad];
 		if (locked[pad]) {
-			if (active) {
-				last_active[pad] = now;  // sigue vibrando: alarga el bloqueo
-			}
-			unsigned long since_hit = now - hit_time[pad];
-			unsigned long since_active = now - last_active[pad];
-			bool calm = since_hit >= MIN_LOCKOUT_MS && since_active >= QUIET_MS;
-			if (calm || since_hit >= MAX_LOCKOUT_MS) {
+			if ((long)(now - locked_until[pad]) >= 0) {
 				locked[pad] = false;
 			} else {
 				any_locked = true;
 				continue;
 			}
 		}
-		if (active) {
+		if (digitalRead(PAD_PINS[pad]) != idle_state[pad]) {
 			Serial.println(SERIAL_CHANNELS[pad]);
 			locked[pad] = true;
-			hit_time[pad] = now;
-			last_active[pad] = now;
+			locked_until[pad] = now + LOCKOUT_MS;
 			any_locked = true;
 		}
 	}
