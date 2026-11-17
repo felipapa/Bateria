@@ -227,6 +227,7 @@ func _start_tap_input() -> void:
 	python_args.append(bridge_path)
 	python_args.append(port)
 	python_args.append(str(TAP_UDP_PORT))
+	python_args.append(str(OS.get_process_id()))
 	tap_bridge_pid = OS.create_process(python_command, python_args)
 	if tap_bridge_pid < 0:
 		tap_udp.close()

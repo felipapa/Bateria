@@ -49,14 +49,22 @@ puerto solo puede estar abierto por un programa a la vez.
 Abre `arduino/pulsora_pad/pulsora_pad.ino` en Arduino IDE, selecciona `Arduino
 Uno`, el puerto `/dev/ttyACM0` (o el que aparezca en tu PC) y pulsa Subir.
 
-El firmware lee cuatro modulos digitales SW-420 por `A0-A3`, envia los canales
-por serial a 9600 baudios. No aplica debounce ni cooldown: cada transicion
-digital hacia activo se envia, incluidos los posibles rebotes del sensor. El
-mapeo actual es `A3 -> D`, `A2 -> F`, `A0 -> J` y `A1 -> K`.
+El firmware lee cuatro modulos digitales SW-420 por `A0-A3` y envia los canales
+por serial a 9600 baudios. Filtra la vibracion: el primer pulso de un pad se
+envia y ese pad se ignora durante 1 segundo (`LOCKOUT_MS`). El mapeo actual es
+`A3 -> D`, `A2 -> F`, `A0 -> J` y `A1 -> K`.
 
 ## 4. Ejecutar y probar
 
-Abre el proyecto en Godot y pulsa Play. Al iniciar, Godot lanza el puente
+Lo mas facil es usar el lanzador, que revisa Godot, pyserial y el permiso del
+puerto antes de abrir el juego:
+
+```bash
+./run_linux.sh
+```
+
+Si Godot no esta en el PATH: `GODOT=/ruta/a/godot ./run_linux.sh`. Tambien puedes
+abrir el proyecto en Godot y pulsar Play. Al iniciar, Godot lanza el puente
 `tools/arduino_pad_bridge.py`, que detecta automaticamente el puerto, envia
 golpes por UDP local y vuelve a buscar el Arduino si se desconecta. El menu
 muestra `PAD ARDUINO` en verde cuando recibe el heartbeat.
@@ -65,6 +73,11 @@ Para probar los cuatro pads conectados, elige `PAD TEST` al final de la lista.
 Es una pista corta que recorre `D`, `F`, `J`, `K`, sin drenaje de vida ni
 registro de puntuacion. El cableado actual mapea `A3 -> D`, `A2 -> F`,
 `A0 -> J` y `A1 -> K`.
+
+El puente elige solo el puerto correcto (prefiere `/dev/ttyACM*` y `/dev/ttyUSB*`,
+ignora los `/dev/ttyS*` falsos) y se cierra solo si Godot se cierra. Si usas Godot
+de Flatpak o Snap, el sandbox puede impedir lanzar `python3` y acceder al puerto;
+usa el binario normal de Godot.
 
 Si no aparece `PAD ARDUINO`, comprueba el permiso del puerto, que el Monitor
 Serie este cerrado y que `python3 -m serial.tools.list_ports -v` liste el Uno.
