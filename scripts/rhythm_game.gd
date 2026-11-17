@@ -112,6 +112,8 @@ var tap_udp: PacketPeerUDP
 var tap_bridge_pid := -1
 var tap_connected := false
 var tap_last_seen := -10.0
+var tap_flash := [0.0, 0.0, 0.0, 0.0]
+var tap_counts := [0, 0, 0, 0]
 var editor_time := 0.0
 var editor_playing := false
 var editor_subdivision := 1
@@ -248,6 +250,8 @@ func _poll_tap_udp() -> void:
 			tap_connected = true
 		elif packet.length() == 1 and packet >= "1" and packet <= "4":
 			tap_connected = true
+			tap_flash[int(packet) - 1] = 0.35
+			tap_counts[int(packet) - 1] += 1
 			if current_screen == Screen.GAME:
 				_press_lane(int(packet) - 1)
 
@@ -289,6 +293,7 @@ func _process(delta: float) -> void:
 
 	for lane in range(LANE_COUNT):
 		lane_flash[lane] = maxf(0.0, lane_flash[lane] - delta)
+		tap_flash[lane] = maxf(0.0, tap_flash[lane] - delta)
 	_update_hit_effects(delta)
 	streak_announcement_timer = maxf(0.0, streak_announcement_timer - delta)
 	streak_pulse = maxf(0.0, streak_pulse - delta * 2.4)
@@ -1730,6 +1735,13 @@ func _draw_menu() -> void:
 	if tap_connected:
 		draw_circle(Vector2(66.0, 536.0), 5.0, COLOR_GREEN)
 		_t(Vector2(80.0, 541.0), "PAD ARDUINO CONECTADO", 12, COLOR_GREEN)
+		for lane in range(LANE_COUNT):
+			var box := Rect2(60.0 + float(lane) * 52.0, 556.0, 44.0, 44.0)
+			var lit: float = clampf(tap_flash[lane] / 0.35, 0.0, 1.0)
+			_rrect(box, 8.0, Color(LANE_COLORS[lane], 0.12 + lit * 0.8))
+			_rrect_line(box, 8.0, Color(LANE_COLORS[lane], 0.8), 1.5)
+			draw_string(fallback_font, box.position + Vector2(0.0, 20.0), LANE_KEYS[lane], HORIZONTAL_ALIGNMENT_CENTER, box.size.x, 15, COLOR_WHITE)
+			draw_string(fallback_font, box.position + Vector2(0.0, 37.0), str(tap_counts[lane]), HORIZONTAL_ALIGNMENT_CENTER, box.size.x, 11, COLOR_LIGHT)
 
 	# Song carousel.
 	var card_x := 430.0
