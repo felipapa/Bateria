@@ -5,16 +5,17 @@
 //
 // Filtro anti-vibraciones fantasma:
 // el PRIMER pulso de un pad se envia al instante, y despues de eso ese pad
-// se ignora por completo durante LOCKOUT_MS (1 segundo). Cualquier vibracion
+// se ignora por completo durante LOCKOUT_MS (250 ms). Cualquier vibracion
 // que llegue en ese tiempo se descarta, no importa cuantas sean.
+// Con 1000 (1 s) no se podia tocar a ritmo normal; 250 permite ~4 golpes/s por pad.
 // Cada pad tiene su propio bloqueo, asi que golpear otro pad sigue funcionando.
 //
-// Si 1 segundo es demasiado para tocar, baja LOCKOUT_MS (por ejemplo 300).
+// Si siguen entrando golpes fantasma, sube LOCKOUT_MS; si no puedes tocar rapido, bajalo.
 
 const int PAD_COUNT = 4;
 const int PAD_PINS[PAD_COUNT] = {A3, A2, A0, A1};
 const int SERIAL_CHANNELS[PAD_COUNT] = {1, 2, 3, 4};
-const unsigned long LOCKOUT_MS = 1000;
+const unsigned long LOCKOUT_MS = 250;
 
 int idle_state[PAD_COUNT];
 unsigned long locked_until[PAD_COUNT];

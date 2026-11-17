@@ -51,7 +51,7 @@ Uno`, el puerto `/dev/ttyACM0` (o el que aparezca en tu PC) y pulsa Subir.
 
 El firmware lee cuatro modulos digitales SW-420 por `A0-A3` y envia los canales
 por serial a 9600 baudios. Filtra la vibracion: el primer pulso de un pad se
-envia y ese pad se ignora durante 1 segundo (`LOCKOUT_MS`). El mapeo actual es
+envia y ese pad se ignora durante 250 ms (`LOCKOUT_MS`). El mapeo actual es
 `A3 -> D`, `A2 -> F`, `A0 -> J` y `A1 -> K`.
 
 ## 4. Ejecutar y probar
