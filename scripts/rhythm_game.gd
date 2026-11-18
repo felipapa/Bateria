@@ -36,6 +36,7 @@ const CLOCK_SMOOTHING := 0.18
 const SHORT_LENGTH := 120.0
 const SHORT_MIN_SONG := 135.0
 const SHORT_FADE := 4.0
+const END_TAIL := 4.0
 
 const LANE_KEYS := ["D", "F", "J", "K"]
 const LANE_COLORS := [
@@ -173,6 +174,7 @@ var autoplay := false
 var play_short := false
 var run_short := false
 var audio_start_pos := 0.0
+var level_end_time := 0.0
 var autoplay_pressed := {}
 var g_left := 0.0
 var g_width := 0.0
@@ -588,6 +590,20 @@ func _enter_editor() -> void:
 	editor_message = "Listo para editar"
 
 
+func _compute_level_end() -> void:
+	# The level ends END_TAIL seconds after the last note (or at the end of the
+	# audio, whichever comes first) so long silent outros do not keep you waiting.
+	level_end_time = song_length - 0.05
+	if _is_pad_test_level():
+		level_end_time = chart_end + 1.0
+		return
+	var last_note := -1.0
+	for note in chart:
+		last_note = maxf(last_note, float(note.time))
+	if last_note >= 0.0:
+		level_end_time = minf(level_end_time, last_note + END_TAIL)
+
+
 func _short_available(level: Dictionary) -> bool:
 	return not bool(level.get("is_pad_test", false)) and float(level.duration) >= SHORT_MIN_SONG
 
@@ -634,6 +650,7 @@ func _start_level(use_current_chart: bool = false, force_full: bool = false) -> 
 	audio_start_pos = 0.0
 	if run_short:
 		_apply_short_cut()
+	_compute_level_end()
 	current_screen = Screen.GAME
 	if song_player != null:
 		song_player.stop()
@@ -916,18 +933,16 @@ func _apply_hard_mode_accents() -> void:
 
 
 func _update_song(delta: float) -> void:
-	if run_short and audio_started and song_player != null and song_time > song_length - SHORT_FADE:
-		song_player.volume_db = linear_to_db(clampf((song_length - song_time) / SHORT_FADE, 0.02, 1.0))
+	if audio_started and song_player != null and not _is_pad_test_level() and song_time > level_end_time - SHORT_FADE:
+		song_player.volume_db = linear_to_db(clampf((level_end_time - song_time) / SHORT_FADE, 0.02, 1.0))
 	# The pulse gives the playfield a beat while the project has no song asset yet.
 	if song_time >= current_song_offset:
 		var beat_position := fmod(song_time - current_song_offset, current_beat)
 		if beat_position < delta * 1.5:
 			pulse_timer = 0.12
 
-	var finish_time := song_length - 0.05
-	if _is_pad_test_level():
-		finish_time = chart_end + 1.0
-	if song_time >= finish_time and chart_cursor >= chart.size():
+	# Finish at the planned end, or as a safety net if the clock ran past the audio.
+	if song_time >= level_end_time or song_time >= song_length + 1.0:
 		_finish_level(true)
 
 
@@ -942,6 +957,9 @@ func _finish_level(won: bool) -> void:
 	audio_started = false
 	if not _is_pad_test_level():
 		_record_score()
+	if autoplay:
+		print("LEVEL FINISHED won=%s song_time=%.1f end_time=%.1f notes=%d score=%d perfect=%d miss=%d" % [str(won), song_time, level_end_time, chart.size(), score, perfects, misses])
+		get_tree().create_timer(0.5).timeout.connect(get_tree().quit)
 
 
 func _record_score() -> void:
