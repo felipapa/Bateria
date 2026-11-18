@@ -175,6 +175,9 @@ var play_short := false
 var run_short := false
 var audio_start_pos := 0.0
 var level_end_time := 0.0
+var audio_preseeked := false
+var bad_clock_frames := 0
+var test_seek := -1.0
 var autoplay_pressed := {}
 var g_left := 0.0
 var g_width := 0.0
@@ -203,6 +206,10 @@ func _ready() -> void:
 		for arg in OS.get_cmdline_user_args():
 			if arg.begins_with("--level="):
 				selected_level = clampi(int(arg.substr(8)), 0, levels.size() - 1)
+			if arg.begins_with("--seek="):
+				test_seek = float(arg.substr(7))
+			elif arg.begins_with("--seekend="):
+				test_seek = -2.0 - float(arg.substr(10))
 		_start_level()
 	queue_redraw()
 
@@ -333,6 +340,13 @@ func _advance_song_clock(delta: float) -> void:
 	var target := _raw_audio_time()
 	var predicted := song_time + delta
 	var diff := target - predicted
+	if absf(diff) > 1.0 and bad_clock_frames < 45:
+		# A reading more than a second away is garbage (for example the playback
+		# position before a seek has been applied): keep counting with the delta.
+		bad_clock_frames += 1
+		song_time = predicted
+		return
+	bad_clock_frames = 0
 	if absf(diff) > CLOCK_SNAP_THRESHOLD:
 		song_time = target
 	else:
@@ -419,7 +433,7 @@ func _input(event: InputEvent) -> void:
 	if keycode == KEY_SPACE and not level_finished:
 		is_paused = not is_paused
 		if song_player != null:
-			song_player.stream_paused = is_paused
+			song_player.stream_paused = is_paused or (audio_preseeked and not audio_started)
 		return
 	if is_paused and (keycode == KEY_LEFT or keycode == KEY_RIGHT):
 		_adjust_calibration(-0.005 if keycode == KEY_LEFT else 0.005)
@@ -609,8 +623,7 @@ func _short_available(level: Dictionary) -> bool:
 
 
 func _apply_short_cut() -> void:
-	# Pick the busiest 2-minute window, starting on a bar line, and rebase the
-	# chart so the game clock starts at 0 at the beginning of that window.
+	# Pick the busiest 2-minute window, starting on a bar line.
 	var bar := current_beat * 4.0
 	var first := fposmod(current_song_offset, bar)
 	var max_start := song_length - SHORT_LENGTH
@@ -627,17 +640,22 @@ func _apply_short_cut() -> void:
 			best_count = count
 			best_start = candidate
 		candidate += bar
+	_apply_cut(best_start, SHORT_LENGTH)
+
+
+func _apply_cut(start: float, length: float) -> void:
+	# Rebase the chart so the game clock is 0 at `start` seconds of the song.
 	var shifted: Array = []
 	for note in chart:
 		var note_time := float(note.time)
-		if note_time >= best_start and note_time < best_start + SHORT_LENGTH - 0.5:
-			shifted.append({"time": note_time - best_start, "lane": int(note.lane)})
+		if note_time >= start and note_time < start + length - 0.5:
+			shifted.append({"time": note_time - start, "lane": int(note.lane)})
 	if autoplay:
-		print("SHORT window start=%.2fs notes=%d of %d" % [best_start, shifted.size(), chart.size()])
+		print("CUT start=%.2fs length=%.1fs notes=%d of %d" % [start, length, shifted.size(), chart.size()])
 	chart = shifted
-	audio_start_pos = best_start
-	current_song_offset -= best_start
-	song_length = SHORT_LENGTH
+	audio_start_pos = start
+	current_song_offset -= start
+	song_length = length
 	chart_end = song_length
 
 
@@ -650,12 +668,24 @@ func _start_level(use_current_chart: bool = false, force_full: bool = false) -> 
 	audio_start_pos = 0.0
 	if run_short:
 		_apply_short_cut()
+	elif autoplay and test_seek != -1.0:
+		var seek_to := test_seek if test_seek >= 0.0 else song_length - (-2.0 - test_seek)
+		seek_to = clampf(seek_to, 0.0, song_length - 10.0)
+		_apply_cut(seek_to, song_length - seek_to)
 	_compute_level_end()
 	current_screen = Screen.GAME
 	if song_player != null:
 		song_player.stop()
 		song_player.stream_paused = false
 		song_player.volume_db = 0.0
+	audio_preseeked = false
+	bad_clock_frames = 0
+	if song_player != null and audio_start_pos > 0.0:
+		# Pay the seek cost during the countdown: load the audio at the start
+		# position, paused, and just unpause it when the level begins.
+		song_player.play(audio_start_pos)
+		song_player.stream_paused = true
+		audio_preseeked = true
 	audio_started = false
 	autoplay_pressed.clear()
 	song_time = -3.0
@@ -1536,7 +1566,10 @@ func _start_song_audio() -> void:
 		audio_started = false
 		return
 	song_player.volume_db = 0.0
-	song_player.play(audio_start_pos)
+	if audio_preseeked:
+		song_player.stream_paused = false
+	else:
+		song_player.play(audio_start_pos)
 	audio_started = true
 
 
