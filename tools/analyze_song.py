@@ -16,6 +16,8 @@ import sys
 import miniaudio
 import numpy as np
 
+import chart_rules
+
 SR = 22050
 HOP = 256
 NFFT = 1024
@@ -182,7 +184,8 @@ def main():
                       "duration": round(duration, 3)}))
     if args.chart:
         notes = generate_chart(env_low, env, fps, bpm, offset, duration, args.rank)
-        notes.sort(key=lambda n: n["time"])
+        notes, moved, dropped = chart_rules.enforce_lane_gap(notes)
+        print("regla 1 s por carril: %d movidas, %d descartadas" % (moved, dropped), file=sys.stderr)
         with open(args.chart, "w", encoding="utf-8") as f:
             json.dump(notes, f)
         print(f"{len(notes)} notas -> {args.chart}", file=sys.stderr)

@@ -33,6 +33,9 @@ const TAP_UDP_PORT := 4242
 const SETTINGS_PATH := "user://pulsora_settings.json"
 const CLOCK_SNAP_THRESHOLD := 0.09
 const CLOCK_SMOOTHING := 0.18
+const SHORT_LENGTH := 120.0
+const SHORT_MIN_SONG := 135.0
+const SHORT_FADE := 4.0
 
 const LANE_KEYS := ["D", "F", "J", "K"]
 const LANE_COLORS := [
@@ -89,7 +92,6 @@ var levels: Array = [
 		"song_path": FAR_KID_PATH,
 		"duration": 178.200,
 		"offset": 1.2540,
-		"accents": true,
 		"chart_path": "res://levels/far_kid_chart.json"
 	}
 ]
@@ -168,6 +170,9 @@ var fallback_font: Font
 var sync_calibration := 0.0
 var clock_stamp_usec := 0
 var autoplay := false
+var play_short := false
+var run_short := false
+var audio_start_pos := 0.0
 var autoplay_pressed := {}
 var g_left := 0.0
 var g_width := 0.0
@@ -190,6 +195,7 @@ func _ready() -> void:
 	_start_tap_input()
 	if "--autoplay" in OS.get_cmdline_user_args():
 		autoplay = true
+		play_short = "--short" in OS.get_cmdline_user_args()
 		print("AUDIO output_latency=%.1fms mix_rate=%d" % [AudioServer.get_output_latency() * 1000.0, int(AudioServer.get_mix_rate())])
 		player_name = "BOT"
 		for arg in OS.get_cmdline_user_args():
@@ -315,7 +321,7 @@ func _make_font() -> Font:
 func _raw_audio_time() -> float:
 	# Position + time since the last mix, minus the output latency, is the moment
 	# the listener actually hears the current sample.
-	return song_player.get_playback_position() + AudioServer.get_time_since_last_mix() - AudioServer.get_output_latency() - sync_calibration
+	return song_player.get_playback_position() - audio_start_pos + AudioServer.get_time_since_last_mix() - AudioServer.get_output_latency() - sync_calibration
 
 
 func _advance_song_clock(delta: float) -> void:
@@ -406,7 +412,7 @@ func _input(event: InputEvent) -> void:
 		_return_to_menu()
 		return
 	if keycode == KEY_R:
-		_start_level()
+		_start_level(false, not run_short)
 		return
 	if keycode == KEY_SPACE and not level_finished:
 		is_paused = not is_paused
@@ -425,6 +431,8 @@ func _handle_menu_key(keycode: int) -> void:
 		selected_level = maxi(0, selected_level - 1)
 	elif keycode == KEY_DOWN or keycode == KEY_S:
 		selected_level = mini(levels.size() - 1, selected_level + 1)
+	elif keycode == KEY_TAB:
+		play_short = not play_short
 	elif keycode == KEY_LEFT:
 		_adjust_calibration(-0.005)
 	elif keycode == KEY_RIGHT:
@@ -557,7 +565,9 @@ func _handle_scores_input(event: InputEvent) -> void:
 	var keycode := key_event.physical_keycode
 	if keycode == 0:
 		keycode = key_event.keycode
-	if keycode == KEY_ESCAPE or keycode == KEY_T:
+	if keycode == KEY_TAB:
+		play_short = not play_short
+	elif keycode == KEY_ESCAPE or keycode == KEY_T:
 		current_screen = Screen.MENU
 	elif keycode == KEY_UP or keycode == KEY_W:
 		selected_level = maxi(0, selected_level - 1)
@@ -578,15 +588,57 @@ func _enter_editor() -> void:
 	editor_message = "Listo para editar"
 
 
-func _start_level(use_current_chart: bool = false) -> void:
+func _short_available(level: Dictionary) -> bool:
+	return not bool(level.get("is_pad_test", false)) and float(level.duration) >= SHORT_MIN_SONG
+
+
+func _apply_short_cut() -> void:
+	# Pick the busiest 2-minute window, starting on a bar line, and rebase the
+	# chart so the game clock starts at 0 at the beginning of that window.
+	var bar := current_beat * 4.0
+	var first := fposmod(current_song_offset, bar)
+	var max_start := song_length - SHORT_LENGTH
+	var best_start := 0.0
+	var best_count := -1
+	var candidate := first
+	while candidate <= max_start + 0.001:
+		var count := 0
+		for note in chart:
+			var note_time := float(note.time)
+			if note_time >= candidate and note_time < candidate + SHORT_LENGTH:
+				count += 1
+		if count > best_count:
+			best_count = count
+			best_start = candidate
+		candidate += bar
+	var shifted: Array = []
+	for note in chart:
+		var note_time := float(note.time)
+		if note_time >= best_start and note_time < best_start + SHORT_LENGTH - 0.5:
+			shifted.append({"time": note_time - best_start, "lane": int(note.lane)})
+	if autoplay:
+		print("SHORT window start=%.2fs notes=%d of %d" % [best_start, shifted.size(), chart.size()])
+	chart = shifted
+	audio_start_pos = best_start
+	current_song_offset -= best_start
+	song_length = SHORT_LENGTH
+	chart_end = song_length
+
+
+func _start_level(use_current_chart: bool = false, force_full: bool = false) -> void:
 	if not use_current_chart:
 		_select_level_data()
 		_setup_song()
 		_build_song_chart()
+	run_short = play_short and not force_full and _short_available(levels[selected_level])
+	audio_start_pos = 0.0
+	if run_short:
+		_apply_short_cut()
 	current_screen = Screen.GAME
 	if song_player != null:
 		song_player.stop()
 		song_player.stream_paused = false
+		song_player.volume_db = 0.0
 	audio_started = false
 	autoplay_pressed.clear()
 	song_time = -3.0
@@ -679,7 +731,7 @@ func _handle_editor_input(event: InputEvent) -> void:
 	elif key_event.unicode == 93:
 		_shift_all_chart_notes(current_beat / 4.0)
 	elif keycode == KEY_ENTER:
-		_start_level()
+		_start_level(false, true)
 
 
 func _update_editor(delta: float) -> void:
@@ -864,6 +916,8 @@ func _apply_hard_mode_accents() -> void:
 
 
 func _update_song(delta: float) -> void:
+	if run_short and audio_started and song_player != null and song_time > song_length - SHORT_FADE:
+		song_player.volume_db = linear_to_db(clampf((song_length - song_time) / SHORT_FADE, 0.02, 1.0))
 	# The pulse gives the playfield a beat while the project has no song asset yet.
 	if song_time >= current_song_offset:
 		var beat_position := fmod(song_time - current_song_offset, current_beat)
@@ -898,7 +952,7 @@ func _record_score() -> void:
 	var normalized_name := player_name.strip_edges().to_lower()
 	for index in range(scores.size()):
 		var entry: Dictionary = scores[index]
-		if int(entry.level) == selected_level and str(entry.name).to_lower() == normalized_name:
+		if int(entry.level) == selected_level and bool(entry.get("short", false)) == run_short and str(entry.name).to_lower() == normalized_name:
 			if score > int(entry.score):
 				entry.score = score
 				entry.accuracy = _accuracy_percent()
@@ -909,6 +963,7 @@ func _record_score() -> void:
 		"name": player_name.strip_edges().left(12),
 		"score": score,
 		"accuracy": _accuracy_percent(),
+		"short": run_short,
 		"level": selected_level
 	})
 	_scores_sort()
@@ -942,6 +997,7 @@ func _load_scores() -> void:
 				"name": str(entry.name).left(12),
 				"score": int(entry.score),
 				"accuracy": float(entry.get("accuracy", 0.0)),
+				"short": bool(entry.get("short", false)),
 				"level": clampi(int(entry.level), 0, levels.size() - 1)
 			})
 	_scores_sort()
@@ -1461,7 +1517,8 @@ func _start_song_audio() -> void:
 	if song_player == null:
 		audio_started = false
 		return
-	song_player.play()
+	song_player.volume_db = 0.0
+	song_player.play(audio_start_pos)
 	audio_started = true
 
 
@@ -1654,7 +1711,7 @@ func _badge(pos: Vector2, text: String, color: Color) -> float:
 func _best_score_for(level_index: int) -> int:
 	var best := 0
 	for entry in scores:
-		if int(entry.level) == level_index:
+		if int(entry.level) == level_index and bool(entry.get("short", false)) == play_short:
 			best = maxi(best, int(entry.score))
 	return best
 
@@ -1726,7 +1783,7 @@ func _draw_menu() -> void:
 	_t(Vector2(60.0, 246.0), "%02d / %02d" % [selected_level + 1, levels.size()], 34, COLOR_WHITE)
 	var level: Dictionary = levels[selected_level]
 	var diff_color := _difficulty_color(str(level.difficulty))
-	_t(Vector2(60.0, 330.0), "MEJOR PUNTAJE", 12, COLOR_MUTED)
+	_t(Vector2(60.0, 330.0), "MEJOR PUNTAJE (%s)" % ("2 MIN" if play_short else "COMPLETA"), 12, COLOR_MUTED)
 	var best := _best_score_for(selected_level)
 	_t(Vector2(60.0, 366.0), "%07d" % best if best > 0 else "--", 30, COLOR_YELLOW)
 	_t(Vector2(60.0, 430.0), "SINCRONIA", 12, COLOR_MUTED)
@@ -1773,6 +1830,15 @@ func _draw_menu() -> void:
 			var badge_x := _badge(rect.position + Vector2(40.0, 102.0), str(item.difficulty), color)
 			_t(rect.position + Vector2(56.0 + badge_x, 119.0), "%s    %s" % [str(item.bpm_label), str(item.length)], 14, COLOR_LIGHT)
 			_t(rect.position + Vector2(40.0, 152.0), str(item.notes), 12, COLOR_MUTED)
+			var short_ok := _short_available(item)
+			var pill_x := rect.end.x - 250.0
+			var full_on := not play_short or not short_ok
+			_rrect(Rect2(pill_x, 98.0 + rect.position.y, 110.0, 30.0), 15.0, Color(COLOR_ACCENT, 0.9 if full_on else 0.10))
+			_t(Vector2(pill_x, rect.position.y + 119.0), "COMPLETA", 13, COLOR_BACKGROUND if full_on else COLOR_MUTED, HORIZONTAL_ALIGNMENT_CENTER, 110.0)
+			var short_on := play_short and short_ok
+			_rrect(Rect2(pill_x + 120.0, 98.0 + rect.position.y, 110.0, 30.0), 15.0, Color(COLOR_PINK, 0.9 if short_on else 0.10))
+			_t(Vector2(pill_x + 120.0, rect.position.y + 119.0), "2 MINUTOS" if short_ok else "--", 13, COLOR_BACKGROUND if short_on else COLOR_MUTED, HORIZONTAL_ALIGNMENT_CENTER, 110.0)
+			_t(Vector2(pill_x, rect.position.y + 152.0), "TAB cambia la version", 11, COLOR_MUTED, HORIZONTAL_ALIGNMENT_CENTER, 230.0)
 		else:
 			_rrect(rect, 12.0, Color(COLOR_PANEL, 0.75 * fade))
 			_rrect_line(rect, 12.0, Color(color, 0.35 * fade), 1.2)
@@ -1786,6 +1852,7 @@ func _draw_menu() -> void:
 	var y := vs.y - 48.0
 	x += _chip(Vector2(x, y), "ARR/ABA", "elegir")
 	x += _chip(Vector2(x, y), "ENTER", "jugar", COLOR_GREEN)
+	x += _chip(Vector2(x, y), "TAB", "version", COLOR_PINK)
 	x += _chip(Vector2(x, y), "E", "editor", COLOR_VIOLET)
 	x += _chip(Vector2(x, y), "N", "nuevo", COLOR_ORANGE)
 	x += _chip(Vector2(x, y), "T", "tabla", COLOR_YELLOW)
@@ -1799,7 +1866,7 @@ func _draw_name_entry() -> void:
 	var panel := Rect2((vs.x - 620.0) * 0.5, 210.0, 620.0, 280.0)
 	_panel(panel, _difficulty_color(str(level.difficulty)))
 	_t(Vector2(panel.position.x, panel.position.y + 52.0), "NOMBRE DEL JUGADOR", 20, COLOR_WHITE, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x)
-	_t(Vector2(panel.position.x, panel.position.y + 82.0), str(level.title), 15, COLOR_YELLOW, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x)
+	_t(Vector2(panel.position.x, panel.position.y + 82.0), "%s  -  %s" % [str(level.title), ("2 MINUTOS" if (play_short and _short_available(level)) else "COMPLETA")], 15, COLOR_YELLOW, HORIZONTAL_ALIGNMENT_CENTER, panel.size.x)
 	var typed_name := name_input
 	if int(menu_time * 2.0) % 2 == 0:
 		typed_name += "_"
@@ -1857,10 +1924,10 @@ func _draw_delete_confirmation() -> void:
 func _draw_scores() -> void:
 	var vs := _draw_screen_base("TABLA DE PUNTUACIONES", COLOR_YELLOW)
 	var level: Dictionary = levels[selected_level]
-	_t(Vector2(vs.x - 56.0 - 420.0, 138.0), str(level.title), 20, COLOR_YELLOW, HORIZONTAL_ALIGNMENT_RIGHT, 420.0)
+	_t(Vector2(vs.x - 56.0 - 420.0, 138.0), "%s  -  %s" % [str(level.title), "2 MIN" if play_short else "COMPLETA"], 20, COLOR_YELLOW, HORIZONTAL_ALIGNMENT_RIGHT, 420.0)
 	var level_scores: Array = []
 	for entry in scores:
-		if int(entry.level) == selected_level:
+		if int(entry.level) == selected_level and bool(entry.get("short", false)) == play_short:
 			level_scores.append(entry)
 	level_scores.sort_custom(_sort_score_entries)
 	var panel := Rect2((vs.x - 760.0) * 0.5, 170.0, 760.0, 410.0)
@@ -1881,6 +1948,7 @@ func _draw_scores() -> void:
 			_t(Vector2(panel.position.x + 96.0, y), "--", 16, Color(COLOR_MUTED, 0.5))
 	var x := 56.0
 	x += _chip(Vector2(x, vs.y - 48.0), "ARR/ABA", "cambiar nivel")
+	x += _chip(Vector2(x, vs.y - 48.0), "TAB", "version", COLOR_PINK)
 	x += _chip(Vector2(x, vs.y - 48.0), "T / ESC", "volver", COLOR_RED)
 
 
